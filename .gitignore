@@ -1,0 +1,17 @@
+.DS_Store
+.deps/
+
+*.o
+*.elf
+*~
+
+pkg/staging/
+pkg/ps5torrent_install/
+pkg/transfer_bundle/
+pkg/*.pkg
+pkg/*.tar.gz
+pkg/install_via_ftp.sh
+pkg/sce_sys/*.png
+
+__pycache__/
+*.py[cod]

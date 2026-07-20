@@ -1,0 +1,62 @@
+{
+  "titleId": "PPSA00001",
+  "contentId": "UP9001-PPSA00001_00-PS5TORRENT000001",
+  "contentVersion": "01.000.000",
+  "masterVersion": "01.00",
+  "attribute": 0,
+  "attribute2": 0,
+  "attribute3": 4,
+  "applicationCategoryType": 0,
+  "applicationDrmType": "free",
+  "applicationSubCategoryType": 0,
+  "conceptId": "00000000000000000000000000000000",
+  "contentBadgeType": 1,
+  "ageLevel": {
+    "default": 0,
+    "US": 0,
+    "GB": 0,
+    "DE": 0,
+    "FR": 0,
+    "BR": 0
+  },
+  "localizedParameters": {
+    "defaultLanguage": "en-US",
+    "en-US": {
+      "titleName": "PS5Torrent",
+      "titleSortName": "PS5Torrent"
+    },
+    "pt-BR": {
+      "titleName": "PS5Torrent",
+      "titleSortName": "PS5Torrent"
+    },
+    "es-ES": {
+      "titleName": "PS5Torrent",
+      "titleSortName": "PS5Torrent"
+    }
+  },
+  "sdkVersion": "0x0100000000000000",
+  "requiredSystemSoftwareVersion": "0x0000000000000000",
+  "versionFileUri": "",
+  "parentalLevel": 1,
+  "downloadDataSize": 0,
+  "systemServiceType": 1,
+  "isLicenseFree": true,
+  "appLaunchType": 0,
+  "audioLanguages": [
+    "en-US"
+  ],
+  "subtitleLanguages": [
+    "en-US",
+    "pt-BR"
+  ],
+  "userDefinedParams": [
+    {
+      "key": "auto_start",
+      "value": "1"
+    },
+    {
+      "key": "web_port",
+      "value": "8080"
+    }
+  ]
+}

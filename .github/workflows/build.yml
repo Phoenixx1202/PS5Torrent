@@ -1,0 +1,45 @@
+name: Build PS5 payload
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      PS5_PAYLOAD_SDK: /tmp/ps5-payload-sdk
+      LLVM_CONFIG: /usr/bin/llvm-config-18
+      SDK_VERSION: v0.41
+      SDK_SHA256: ebfb0acb5260511951a80e17db41650c62d20a8caf8659a230b928dc85005984
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang-18 lld-18 llvm-18-dev curl unzip
+
+      - name: Install ps5-payload-sdk
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/ps5-payload-dev/sdk/releases/download/${SDK_VERSION}/ps5-payload-sdk.zip" \
+            --output /tmp/ps5-payload-sdk.zip
+          echo "${SDK_SHA256}  /tmp/ps5-payload-sdk.zip" | sha256sum --check
+          unzip -q /tmp/ps5-payload-sdk.zip -d /tmp
+
+      - name: Build
+        run: make --jobs=2
+
+      - name: Inspect payload
+        run: file ps5_torrent.elf
+
+      - name: Upload ELF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ps5_torrent-elf
+          path: ps5_torrent.elf
+          if-no-files-found: error

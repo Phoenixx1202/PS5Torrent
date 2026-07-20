@@ -1,0 +1,28 @@
+{
+  "titleId": "PPSA00001",
+  "contentId": "UP9001-PPSA00001_00-PS5TORRENT000001",
+  "contentVersion": "01.000.000",
+  "masterVersion": "01.00",
+  "attribute": 0,
+  "attribute2": 0,
+  "attribute3": 4,
+  "applicationCategoryType": 0,
+  "applicationDrmType": "free",
+  "conceptId": "00000000000000000000000000000000",
+  "contentBadgeType": 1,
+  "ageLevel": {
+    "default": 0,
+    "US": 0
+  },
+  "localizedParameters": {
+    "defaultLanguage": "en-US",
+    "en-US": {
+      "titleName": "PS5Torrent"
+    },
+    "pt-BR": {
+      "titleName": "PS5Torrent"
+    }
+  },
+  "sdkVersion": "0x0100000000000000",
+  "versionFileUri": ""
+}
