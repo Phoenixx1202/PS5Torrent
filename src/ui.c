@@ -17,6 +17,16 @@ extern int klog_puts(const char *s);
 /* Flag set during ui_init */
 static int use_klog = 0;
 
+typedef struct {
+    char reserved[45];
+    char message[3075];
+} notification_request_t;
+
+extern int sceKernelSendNotificationRequest(int device,
+                                             notification_request_t *request,
+                                             size_t request_size,
+                                             int flags);
+
 void ui_init(void)
 {
     /* Try to initialize klog - if it fails, fall back to printf */
@@ -155,4 +165,18 @@ void ui_success(const char *fmt, ...)
     } else {
         printf("SUCCESS: %s\n", buf);
     }
+}
+
+void ui_notify(const char *fmt, ...)
+{
+    notification_request_t request = {0};
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(request.message, sizeof(request.message), fmt, args);
+    va_end(args);
+
+    int result = sceKernelSendNotificationRequest(0, &request,
+                                                   sizeof(request), 0);
+    if (result != 0)
+        ui_error("Could not display PS5 notification (0x%x)", result);
 }

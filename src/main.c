@@ -37,7 +37,38 @@
 #include "http_server.h"
 #include "torrent_mgr.h"
 #include "storage_paths.h"
+#include "ps5_browser.h"
 #include "web_content.h"
+
+static void json_escape_text(const char *input, char *output, size_t output_size)
+{
+    static const char hex[] = "0123456789abcdef";
+    size_t pos = 0;
+
+    if (!output || output_size == 0) return;
+    if (!input) input = "";
+
+    for (const unsigned char *p = (const unsigned char *)input;
+         *p && pos + 1 < output_size; p++) {
+        unsigned char c = *p;
+        if (c == '\"' || c == '\\') {
+            if (pos + 2 >= output_size) break;
+            output[pos++] = '\\';
+            output[pos++] = (char)c;
+        } else if (c < 0x20) {
+            if (pos + 6 >= output_size) break;
+            output[pos++] = '\\';
+            output[pos++] = 'u';
+            output[pos++] = '0';
+            output[pos++] = '0';
+            output[pos++] = hex[c >> 4];
+            output[pos++] = hex[c & 15];
+        } else {
+            output[pos++] = (char)c;
+        }
+    }
+    output[pos] = '\0';
+}
 
 /**
  * Web interface handler: serves the main HTML page.
@@ -106,9 +137,12 @@ static http_response_t *handle_api_add(const http_request_t *req)
 
     managed_torrent_t *mt = torrent_mgr_get(idx);
     char resp_json[512];
+    char escaped_name[384];
+    json_escape_text(mt ? mt->name : "Unknown",
+                     escaped_name, sizeof(escaped_name));
     n = snprintf(resp_json, sizeof(resp_json),
         "{\"success\":true,\"id\":%d,\"name\":\"%s\"}",
-        idx, mt ? mt->name : "Unknown");
+        idx, escaped_name);
 
     return http_response_new(200, "application/json", resp_json, (size_t)n);
 }
@@ -187,9 +221,12 @@ static http_response_t *handle_api_upload(const http_request_t *req)
 
     managed_torrent_t *mt = torrent_mgr_get(idx);
     char resp_json[512];
+    char escaped_name[384];
+    json_escape_text(mt ? mt->name : "Unknown",
+                     escaped_name, sizeof(escaped_name));
     n = snprintf(resp_json, sizeof(resp_json),
         "{\"success\":true,\"id\":%d,\"name\":\"%s\"}",
-        idx, mt ? mt->name : "Unknown");
+        idx, escaped_name);
 
     return http_response_new(200, "application/json", resp_json, (size_t)n);
 }
@@ -365,53 +402,24 @@ static int get_local_ip(char *buf, size_t bufsz)
 
 /**
  * Entry point called by ps5-payload-sdk CRT.
- * Supports two modes:
- *   1. PKG mode: Launched from PS5 dashboard (no args) → auto-starts web UI
- *   2. CLI mode: Launched from ELF loader with args → original behavior
+ * The payload loader does not guarantee a valid envp third argument, so the
+ * entry point deliberately uses the portable no-argument form.
  */
-int main(int argc, char *argv[], char *envp[])
+int main(void)
 {
-    int is_pkg_mode = 0;
-
-    /* Detect PKG mode: check environment for PS5 app signatures */
-    /* When launched from PS5 dashboard via PKG, argv/argc may vary, */
-    /* but envp typically contains APP_LAUNCH_TYPE or similar */
-    for (char **env = envp; env && *env; env++) {
-        if (strncmp(*env, "APP_LAUNCH_TYPE=", 16) == 0 ||
-            strncmp(*env, "SCE_APP_TYPE=", 13) == 0 ||
-            strncmp(*env, "PS5TORRENT_AUTO=", 16) == 0 ||
-            strncmp(*env, "SYS_LAUNCH_PATH=", 16) == 0) {
-            is_pkg_mode = 1;
-            break;
-        }
-    }
-
-    /* Also detect via argv: if program name contains /mnt/ or /data/, it's PKG mode */
-    if (!is_pkg_mode && argc >= 1 && argv && argv[0]) {
-        if (strstr(argv[0], "/mnt/") || strstr(argv[0], "/data/") ||
-            strstr(argv[0], "/sandbox/")) {
-            is_pkg_mode = 1;
-        }
-    }
-
-    /* Last resort: if no args at all, assume PKG */
-    if (!is_pkg_mode && argc <= 1) {
-        is_pkg_mode = 1;
-    }
-
     /* Initialize subsystems */
     ui_init();
 
-    if (is_pkg_mode) {
-        ui_log("🎮 PS5Torrent launched from PS5 dashboard!");
-        ui_log("   Auto-starting web interface...");
-    }
-
     ui_print_banner();
+
+    /* The system browser API requires UserService to be initialized first. */
+    int browser_ready = ps5_browser_init() == 0;
 
     /* Initialize networking first */
     if (net_init() < 0) {
         ui_error("Failed to initialize networking");
+        ui_notify("PS5Torrent não iniciou: falha ao preparar a rede.");
+        ps5_browser_shutdown();
         return 1;
     }
 
@@ -421,20 +429,23 @@ int main(int argc, char *argv[], char *envp[])
     if (http_server_init(HTTP_PORT) < 0) {
         ui_error("Failed to start HTTP server on port %d", HTTP_PORT);
         ui_error("Make sure port %d is not in use.", HTTP_PORT);
+        ui_notify("PS5Torrent não iniciou: a porta %d já está em uso.",
+                  HTTP_PORT);
         net_cleanup();
+        ps5_browser_shutdown();
         return 1;
     }
 
-    /* Register web UI handler */
-    http_server_register("/", handle_web_index);
-
-    /* Register API handlers */
+    /* Register specific API prefixes before the catch-all web route. */
     http_server_register("/api/torrents/add", handle_api_add);
     http_server_register("/api/torrents/upload", handle_api_upload);
     http_server_register("/api/torrents/", handle_api_action);
     http_server_register("/api/torrents", handle_api_torrents);
     http_server_register("/api/paths", handle_api_paths);
     http_server_register("/api/status", handle_api_status);
+
+    /* Catch-all web UI handler must remain last. */
+    http_server_register("/", handle_web_index);
 
     /* Initialize torrent manager */
     torrent_mgr_init();
@@ -468,13 +479,8 @@ int main(int argc, char *argv[], char *envp[])
     ui_log("========================================");
     ui_log("  🎮 PS5Torrent is running!");
     ui_log("  ");
-    if (is_pkg_mode) {
-        ui_log("  📱 Open this URL in your browser:");
-        ui_log("  🌐 http://%s:%d/", local_ip, HTTP_PORT);
-    } else {
-        ui_log("  Access the web interface at:");
-        ui_log("  http://<PS5_IP>:%d/", HTTP_PORT);
-    }
+    ui_log("  Open this URL in your browser:");
+    ui_log("  http://%s:%d/", local_ip, HTTP_PORT);
     ui_log("  ");
     ui_log("  📥 Use the web UI to add torrents");
     ui_log("  💾 Save to USB/NVMe/internal storage");
@@ -482,8 +488,18 @@ int main(int argc, char *argv[], char *envp[])
     ui_log("");
     ui_log("Status: HTTP server active | Torrent engine ready");
 
-    /* If in PKG mode and we found a default path, show tip */
-    if (is_pkg_mode && default_path[0]) {
+    ui_notify("PS5Torrent está ativo\nPainel: http://%s:%d/",
+              local_ip, HTTP_PORT);
+
+    if (browser_ready &&
+        ps5_browser_open("http://127.0.0.1:8080/") == 0)
+        ui_log("Opening the web interface on the PS5...");
+    else {
+        ui_error("Could not open the web interface automatically");
+        ui_notify("Abra o navegador em http://127.0.0.1:%d/", HTTP_PORT);
+    }
+
+    if (default_path[0]) {
         ui_log("💡 Storage detected at: %s", default_path);
     }
 
@@ -522,6 +538,7 @@ int main(int argc, char *argv[], char *envp[])
     torrent_mgr_shutdown();
     http_server_shutdown();
     net_cleanup();
+    ps5_browser_shutdown();
 
     ui_log("PS5Torrent terminated.");
     return 0;

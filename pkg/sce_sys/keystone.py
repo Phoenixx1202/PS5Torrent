@@ -19,7 +19,7 @@ but most tools accept a 256-byte file with Content ID.
 import os
 import struct
 
-CONTENT_ID = "UP9001-PPSA00001_00-PS5TORRENT000001"
+CONTENT_ID = "IV9999-PPSA00001_00-PS5TORRENT000001"
 
 
 def generate_keystone(content_id=CONTENT_ID):

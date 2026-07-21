@@ -1,31 +1,21 @@
 {
-  "titleId": "PPSA00001",
-  "contentId": "UP9001-PPSA00001_00-PS5TORRENT000001",
-  "contentVersion": "01.000.000",
-  "masterVersion": "01.00",
-  "attribute": 0,
-  "attribute2": 0,
-  "attribute3": 4,
   "applicationCategoryType": 0,
   "applicationDrmType": "free",
-  "applicationSubCategoryType": 0,
-  "conceptId": "00000000000000000000000000000000",
-  "contentBadgeType": 1,
-  "ageLevel": {
-    "default": 0,
-    "US": 0,
-    "GB": 0,
-    "DE": 0,
-    "FR": 0,
-    "BR": 0
-  },
+  "attribute": 0,
+  "attribute2": 0,
+  "attribute3": 0,
+  "contentBadgeType": 2,
+  "contentId": "IV9999-PPSA00001_00-PS5TORRENT000001",
+  "contentVersion": "01.000.000",
+  "deeplinkUri": "http://127.0.0.1:8080/",
+  "downloadDataSize": 0,
   "localizedParameters": {
-    "defaultLanguage": "en-US",
-    "en-US": {
+    "defaultLanguage": "pt-BR",
+    "pt-BR": {
       "titleName": "PS5Torrent",
       "titleSortName": "PS5Torrent"
     },
-    "pt-BR": {
+    "en-US": {
       "titleName": "PS5Torrent",
       "titleSortName": "PS5Torrent"
     },
@@ -34,29 +24,16 @@
       "titleSortName": "PS5Torrent"
     }
   },
-  "sdkVersion": "0x0100000000000000",
+  "masterVersion": "01.00",
+  "originContentVersion": "01.000.000",
+  "pubtoolInfo": "creation_date=2026-07-21,c_date=20260721,c_time=0,sdk_ver=1000051,st_type=digital50,img0_l0_size=0,img0_l1_size=0,img0_pc_size=18000000",
+  "pubtoolVer": "0x05500000",
   "requiredSystemSoftwareVersion": "0x0000000000000000",
-  "versionFileUri": "",
-  "parentalLevel": 1,
-  "downloadDataSize": 0,
-  "systemServiceType": 1,
-  "isLicenseFree": true,
-  "appLaunchType": 0,
-  "audioLanguages": [
-    "en-US"
-  ],
-  "subtitleLanguages": [
-    "en-US",
-    "pt-BR"
-  ],
-  "userDefinedParams": [
-    {
-      "key": "auto_start",
-      "value": "1"
-    },
-    {
-      "key": "web_port",
-      "value": "8080"
-    }
-  ]
+  "sdkVersion": "0x0000000000000000",
+  "titleId": "PPSA00001",
+  "userDefinedParam1": 1,
+  "userDefinedParam2": 0,
+  "userDefinedParam3": 0,
+  "userDefinedParam4": 0,
+  "versionFileUri": ""
 }

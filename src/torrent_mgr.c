@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <time.h>
+#include <stdarg.h>
 
 /**
  * Managed torrents array.
@@ -236,8 +237,8 @@ int torrent_mgr_start(int index)
     mt->start_time = get_time_sec();
     mt->last_announce_time = 0;
     mt->last_speed_calc = get_time_sec();
-    mt->last_downloaded = 0;
-    mt->last_uploaded = 0;
+    mt->last_downloaded = mt->downloaded;
+    mt->last_uploaded = mt->uploaded;
 
     return 0;
 }
@@ -258,6 +259,8 @@ void torrent_mgr_stop(int index)
     }
     mt->num_peers = 0;
     mt->active_peers = 0;
+    mt->speed_down = 0;
+    mt->speed_up = 0;
 
     file_writer_finish(&mt->file_writer);
 }
@@ -472,6 +475,8 @@ int torrent_mgr_tick(void)
             file_writer_finish(&mt->file_writer);
             mt->state = TORRENT_DONE;
             mt->progress = 1.0f;
+            mt->speed_down = 0;
+            mt->speed_up = 0;
             continue;
         }
 
@@ -528,6 +533,8 @@ int torrent_mgr_tick(void)
         /* Check if stalled */
         if (mt->active_peers == 0 && mt->tracker_announces > 3) {
             mt->state = TORRENT_ERROR;
+            mt->speed_down = 0;
+            mt->speed_up = 0;
             mt->error_type = TERR_NO_PEERS;
             snprintf(mt->error_msg, sizeof(mt->error_msg),
                      "No peers found after %d tracker announces",
@@ -538,22 +545,74 @@ int torrent_mgr_tick(void)
     return active;
 }
 
+typedef struct {
+    char   *buf;
+    size_t  size;
+    size_t  pos;
+} json_writer_t;
+
+static void json_writef(json_writer_t *writer, const char *fmt, ...)
+{
+    if (!writer || writer->pos >= writer->size) return;
+
+    va_list args;
+    va_start(args, fmt);
+    int written = vsnprintf(writer->buf + writer->pos,
+                            writer->size - writer->pos, fmt, args);
+    va_end(args);
+
+    if (written < 0) return;
+    if ((size_t)written >= writer->size - writer->pos) {
+        writer->pos = writer->size - 1;
+        writer->buf[writer->pos] = '\0';
+        return;
+    }
+    writer->pos += (size_t)written;
+}
+
+static void json_write_string(json_writer_t *writer, const char *value)
+{
+    static const char hex[] = "0123456789abcdef";
+    const unsigned char *p = (const unsigned char *)(value ? value : "");
+
+    json_writef(writer, "\"");
+    while (*p && writer->pos + 7 < writer->size) {
+        unsigned char c = *p++;
+        if (c == '\"' || c == '\\') {
+            json_writef(writer, "\\%c", c);
+        } else if (c == '\b') {
+            json_writef(writer, "\\b");
+        } else if (c == '\f') {
+            json_writef(writer, "\\f");
+        } else if (c == '\n') {
+            json_writef(writer, "\\n");
+        } else if (c == '\r') {
+            json_writef(writer, "\\r");
+        } else if (c == '\t') {
+            json_writef(writer, "\\t");
+        } else if (c < 0x20) {
+            char escaped[7] = {'\\', 'u', '0', '0', hex[c >> 4], hex[c & 15], 0};
+            json_writef(writer, "%s", escaped);
+        } else {
+            json_writef(writer, "%c", c);
+        }
+    }
+    json_writef(writer, "\"");
+}
+
 void torrent_mgr_status_json(char *buf, size_t bufsz)
 {
     if (!buf || bufsz < 64) return;
 
-    size_t pos = 0;
-    pos += snprintf(buf + pos, bufsz - pos,
-                    "{\"torrents\":[");
+    json_writer_t writer = {buf, bufsz, 0};
+    uint64_t now = get_time_sec();
+    json_writef(&writer, "{\"torrents\":[");
 
     for (int i = 0; i < num_torrents; i++) {
         managed_torrent_t *mt = &torrents[i];
 
         if (i > 0)
-            pos += snprintf(buf + pos, bufsz - pos, ",");
-
-        char hash_hex[41];
-        torrent_info_hash_str(mt->torrent ? mt->torrent : NULL, hash_hex);
+            json_writef(&writer, ",");
 
         const char *state_str = "stopped";
         switch (mt->state) {
@@ -564,40 +623,56 @@ void torrent_mgr_status_json(char *buf, size_t bufsz)
         case TORRENT_DONE:        state_str = "done"; break;
         }
 
-        pos += snprintf(buf + pos, bufsz - pos,
-            "{"
-            "\"id\":%d,"
-            "\"name\":\"%s\","
-            "\"hash\":\"%s\","
-            "\"state\":\"%s\","
+        uint64_t remaining = mt->total_size > mt->downloaded
+                           ? mt->total_size - mt->downloaded : 0;
+        uint64_t elapsed = mt->start_time > 0 && now >= mt->start_time
+                         ? now - mt->start_time : 0;
+        size_t pieces_total = mt->torrent ? mt->torrent->num_pieces : 0;
+        size_t pieces_done = pieces_total ? mt->piece_mgr.num_complete : 0;
+
+        json_writef(&writer, "{\"id\":%d,\"name\":", i);
+        json_write_string(&writer, mt->name);
+        json_writef(&writer, ",\"hash\":");
+        json_write_string(&writer, mt->id);
+        json_writef(&writer,
+            ",\"state\":\"%s\","
             "\"progress\":%.3f,"
             "\"size\":%llu,"
             "\"downloaded\":%llu,"
             "\"uploaded\":%llu,"
+            "\"remaining\":%llu,"
             "\"speed_down\":%llu,"
             "\"speed_up\":%llu,"
             "\"peers\":%d,"
             "\"active_peers\":%d,"
-            "\"save_path\":\"%s\","
-            "\"error\":\"%s\""
-            "}",
-            i,
-            mt->name,
-            hash_hex,
+            "\"pieces_done\":%zu,"
+            "\"pieces_total\":%zu,"
+            "\"elapsed\":%llu,"
+            "\"tracker_announces\":%d,"
+            "\"is_magnet\":%s,"
+            "\"save_path\":",
             state_str,
             (double)mt->progress,
             (unsigned long long)mt->total_size,
             (unsigned long long)mt->downloaded,
             (unsigned long long)mt->uploaded,
+            (unsigned long long)remaining,
             (unsigned long long)mt->speed_down,
             (unsigned long long)mt->speed_up,
             mt->num_peers,
             mt->active_peers,
-            mt->save_path,
-            mt->error_msg[0] ? mt->error_msg : "");
+            pieces_done,
+            pieces_total,
+            (unsigned long long)elapsed,
+            mt->tracker_announces,
+            mt->is_magnet ? "true" : "false");
+        json_write_string(&writer, mt->save_path);
+        json_writef(&writer, ",\"error\":");
+        json_write_string(&writer, mt->error_msg[0] ? mt->error_msg : "");
+        json_writef(&writer, "}");
     }
 
-    snprintf(buf + pos, bufsz - pos, "]}");
+    json_writef(&writer, "]}");
 }
 
 void torrent_mgr_shutdown(void)

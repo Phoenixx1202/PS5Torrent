@@ -35,119 +35,105 @@ def create_rounded_rect(size, radius, bg_color):
 
 
 def generate_torrent_icon(size=512):
-    """Generate a PS5Torrent app icon with torrent/download theme."""
-    # Create base rounded rect
-    bg = (13, 17, 23)  # Dark background
-    img = create_rounded_rect(size, size // 6, bg + (255,))
+    """Generate a crisp home-screen tile with download and swarm cues."""
+    scale = 2
+    canvas = size * scale
+    radius = size // 6 * scale
+    img = Image.new("RGB", (canvas, canvas), (5, 10, 20))
+    pixels = img.load()
+
+    # Deep navy gradient plus two soft cyan/blue light sources.
+    for y in range(canvas):
+        for x in range(canvas):
+            vertical = y / canvas
+            blue_glow = max(0.0, 1.0 - (((x - canvas * .78) ** 2 +
+                                         (y - canvas * .16) ** 2) ** .5) /
+                            (canvas * .72))
+            cyan_glow = max(0.0, 1.0 - (((x - canvas * .18) ** 2 +
+                                         (y - canvas * .70) ** 2) ** .5) /
+                            (canvas * .65))
+            pixels[x, y] = (
+                int(5 + 4 * vertical + 4 * cyan_glow),
+                int(11 + 13 * vertical + 27 * cyan_glow + 10 * blue_glow),
+                int(22 + 21 * vertical + 50 * blue_glow + 30 * cyan_glow),
+            )
+
+    # Rounded tile mask.
+    mask = Image.new("L", (canvas, canvas), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, canvas - 1, canvas - 1), radius=radius, fill=255)
+    img.putalpha(mask)
     draw = ImageDraw.Draw(img)
+    unit = scale
 
-    # Gradient overlay (darker at top)
-    for y in range(size):
-        alpha = int(30 * (1 - y / size))
-        draw.rectangle([(0, y), (size, y + 1)], fill=(0, 0, 0, alpha))
+    # Layered border gives the tile a polished edge on both light and dark UI.
+    draw.rounded_rectangle((3*unit, 3*unit, canvas-4*unit, canvas-4*unit),
+                           radius=radius-3*unit, outline=(70, 156, 255, 170),
+                           width=2*unit)
+    draw.rounded_rectangle((10*unit, 10*unit, canvas-11*unit, canvas-11*unit),
+                           radius=radius-10*unit, outline=(70, 220, 222, 45),
+                           width=unit)
 
-    # Add a subtle blue glow at bottom
-    for y in range(size):
-        alpha = int(20 * (y / size))
-        draw.rectangle([(0, y), (size, y + 1)], fill=(31, 111, 235, alpha))
+    cx = canvas // 2
+    cy = int(canvas * .39)
 
-    # Border glow
-    glow_color = (58, 166, 255, 40)
-    draw.rounded_rectangle(
-        [(2, 2), (size - 3, size - 3)],
-        radius=size // 6 - 2,
-        outline=glow_color,
-        width=2
-    )
+    # A peer-to-peer constellation surrounding the download glyph.
+    nodes = [
+        (int(canvas*.24), int(canvas*.30)),
+        (int(canvas*.76), int(canvas*.30)),
+        (int(canvas*.18), int(canvas*.53)),
+        (int(canvas*.82), int(canvas*.53)),
+        (int(canvas*.31), int(canvas*.64)),
+        (int(canvas*.69), int(canvas*.64)),
+    ]
+    for x, y in nodes:
+        draw.line((x, y, cx, cy), fill=(54, 132, 203, 100), width=2*unit)
+    for index, (x, y) in enumerate(nodes):
+        r = (6 if index < 2 else 5) * unit
+        draw.ellipse((x-r, y-r, x+r, y+r),
+                     fill=(77, 221, 218, 255), outline=(182, 255, 250, 220),
+                     width=2*unit)
 
-    # === Draw download arrow ===
-    cx, cy = size // 2, size // 2 - size // 10
+    # Dark medallion and bright, unmistakable download arrow.
+    outer = 122 * unit
+    draw.ellipse((cx-outer, cy-outer, cx+outer, cy+outer),
+                 fill=(8, 25, 45, 238), outline=(53, 127, 211, 230),
+                 width=3*unit)
+    inner = 105 * unit
+    draw.ellipse((cx-inner, cy-inner, cx+inner, cy+inner),
+                 outline=(62, 220, 220, 90), width=2*unit)
+    arrow = (78, 187, 255, 255)
+    highlight = (105, 239, 225, 255)
+    stem_w = 38 * unit
+    top = cy - 70 * unit
+    bottom = cy + 34 * unit
+    draw.rounded_rectangle((cx-stem_w//2, top, cx+stem_w//2, bottom),
+                           radius=10*unit, fill=arrow)
+    draw.polygon(((cx-78*unit, cy+16*unit), (cx+78*unit, cy+16*unit),
+                  (cx, cy+91*unit)), fill=arrow)
+    draw.line((cx-8*unit, top+10*unit, cx-8*unit, bottom-4*unit),
+              fill=highlight, width=6*unit)
 
-    # Arrow stem (vertical rectangle)
-    stem_w = size // 6
-    stem_h = size // 4
-    arrow_color = (88, 166, 255)  # Blue
-    highlight = (150, 200, 255)
+    # Download progress indicator.
+    bar_x = 96 * unit
+    bar_y = int(canvas * .72)
+    bar_w = canvas - 2 * bar_x
+    bar_h = 15 * unit
+    draw.rounded_rectangle((bar_x, bar_y, bar_x+bar_w, bar_y+bar_h),
+                           radius=bar_h//2, fill=(8, 19, 34, 255),
+                           outline=(44, 76, 111, 255), width=unit)
+    draw.rounded_rectangle((bar_x+2*unit, bar_y+2*unit,
+                            bar_x+int(bar_w*.71), bar_y+bar_h-2*unit),
+                           radius=(bar_h-4*unit)//2, fill=(69, 213, 214, 255))
 
-    # Stem (vertical bar)
-    stem_x1 = cx - stem_w // 2
-    stem_y1 = cy - stem_h // 2
-    stem_x2 = cx + stem_w // 2
-    stem_y2 = cy + stem_h // 2
-    draw.rectangle([(stem_x1, stem_y1), (stem_x2, stem_y2)], fill=arrow_color + (255,))
-
-    # Stem highlight
-    hl_x = stem_x1 + stem_w // 6
-    draw.rectangle(
-        [(hl_x, stem_y1 + 5), (hl_x + stem_w // 8, stem_y2 - 5)],
-        fill=highlight + (180,))
-
-    # Arrow head (triangle pointing down)
-    head_w = size // 2
-    head_h = size // 3
-    head_x1 = cx - head_w // 2
-    head_x2 = cx + head_w // 2
-    head_y1 = cy + stem_h // 2 - 5
-    head_y2 = head_y1 + head_h
-
-    # Draw filled triangle for arrow head
-    for y in range(head_y1, head_y2):
-        progress = (y - head_y1) / (head_y2 - head_y1)
-        half_w = int(head_w // 2 * progress)
-        x1 = cx - half_w
-        x2 = cx + half_w
-        if x1 < x2:
-            draw.rectangle([(x1, y), (x2, y + 1)], fill=arrow_color + (255,))
-
-    # === Draw progress bar ===
-    bar_y = int(size * 0.78)
-    bar_h = size // 20
-    bar_margin = size // 5
-    bar_width = size - 2 * bar_margin
-
-    # Bar background
-    draw.rectangle(
-        [(bar_margin, bar_y), (bar_margin + bar_width, bar_y + bar_h)],
-        fill=(30, 35, 45, 255))
-
-    # Bar border
-    draw.rectangle(
-        [(bar_margin, bar_y), (bar_margin + bar_width, bar_y + bar_h)],
-        outline=(58, 166, 255, 120), width=1)
-
-    # Bar fill (60% for aesthetic appeal)
-    fill_width = int(bar_width * 0.6)
-    draw.rectangle(
-        [(bar_margin + 1, bar_y + 1),
-         (bar_margin + fill_width - 1, bar_y + bar_h - 1)],
-        fill=(31, 111, 235, 255))
-
-    # Bar fill gradient highlight
-    draw.rectangle(
-        [(bar_margin + 1, bar_y + 1),
-         (bar_margin + fill_width - 1, bar_y + bar_h // 2)],
-        fill=(58, 166, 255, 100))
-
-    # === Draw network dots (decorative) ===
-    dot_positions = [(0.25, 0.55), (0.4, 0.5), (0.6, 0.5), (0.75, 0.55)]
-    for rx, ry in dot_positions:
-        dx, dy = int(size * rx), int(size * ry)
-        draw.ellipse([(dx - 3, dy - 3), (dx + 3, dy + 3)],
-                     fill=(58, 166, 255, 80))
-
-    # === Draw "PS5" text ===
+    # Compact title, legible from the PS5 home carousel.
     try:
-        # Try to load a font
-        font_size = size // 12
-        # Try common font locations across macOS, Linux, and FreeBSD
+        font_size = 31 * unit
         font_paths = [
-            "/System/Library/Fonts/Helvetica.ttc",          # macOS
-            "/System/Library/Fonts/Supplemental/Arial.ttf", # macOS
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Linux
-            "/usr/share/fonts/dejavu/DejaVuSans.ttf",      # Linux
-            "/usr/local/share/fonts/dejavu/DejaVuSans.ttf", # FreeBSD
-            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",    # Linux alt
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", # Linux alt
+            "/System/Library/Fonts/SFNS.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
         ]
         font = None
         for fp in font_paths:
@@ -159,94 +145,81 @@ def generate_torrent_icon(size=512):
         if font is None:
             font = ImageFont.load_default()
 
-        text = "PS5Torrent"
-        text_color = (200, 210, 220)
-        text_y = int(size * 0.88)
-
-        # Get text size
+        text = "PS5 TORRENT"
         bbox = draw.textbbox((0, 0), text, font=font)
         text_w = bbox[2] - bbox[0]
-        text_x = (size - text_w) // 2
-
-        # Text shadow
-        shadow_color = (0, 0, 0, 150)
-        draw.text((text_x + 1, text_y + 1), text, font=font,
-                  fill=shadow_color)
-        draw.text((text_x, text_y), text, font=font, fill=text_color + (255,))
+        text_x = (canvas - text_w) // 2
+        text_y = int(canvas * .82)
+        draw.text((text_x+2*unit, text_y+2*unit), text, font=font,
+                  fill=(0, 0, 0, 160))
+        draw.text((text_x, text_y), text, font=font,
+                  fill=(232, 246, 255, 255))
     except Exception:
-        pass  # Text is optional
+        pass
 
-    return img
+    return img.resize((size, size), Image.Resampling.LANCZOS)
 
 
 def generate_background(width=1920, height=1080):
-    """Generate pic0.png (background/hero image)."""
-    img = Image.new("RGBA", (width, height), (13, 17, 23))
-    draw = ImageDraw.Draw(img)
-
-    # Gradient dark blue overlay
+    """Generate the background shown when the home-screen tile is selected."""
+    img = Image.new("RGB", (width, height), (5, 10, 19))
+    pixels = img.load()
     for y in range(height):
-        alpha = int(40 * (1 - y / height))
-        draw.rectangle([(0, y), (width, y + 1)], fill=(31, 111, 235, alpha))
+        for x in range(width):
+            glow = max(0.0, 1.0 - (((x - width*.22) ** 2 +
+                                    (y - height*.42) ** 2) ** .5) /
+                       (width*.62))
+            edge = max(0.0, 1.0 - (((x - width*.94) ** 2 +
+                                    (y - height*.08) ** 2) ** .5) /
+                       (width*.50))
+            pixels[x, y] = (int(5 + glow*2),
+                            int(11 + glow*20 + edge*5),
+                            int(22 + glow*44 + edge*30))
+    draw = ImageDraw.Draw(img, "RGBA")
 
-    # Grid lines (subtle)
-    grid_color = (58, 166, 255, 20)
-    for x in range(0, width, 80):
-        draw.line([(x, 0), (x, height)], fill=grid_color, width=1)
-    for y in range(0, height, 80):
-        draw.line([(0, y), (width, y)], fill=grid_color, width=1)
+    # Quiet perspective grid and atmospheric bands.
+    for x in range(-height, width + height, 120):
+        draw.line((x, height, x + height//2, 0), fill=(72, 157, 255, 18), width=1)
+    for y in range(80, height, 96):
+        draw.line((0, y, width, y), fill=(72, 157, 255, 14), width=1)
+    draw.ellipse((-300, 140, 1050, 1490), outline=(53, 148, 255, 35), width=70)
+    draw.ellipse((-180, 260, 930, 1370), outline=(75, 228, 219, 28), width=3)
 
-    # Center glow
-    cx, cy = width // 2, height // 2
-    for r in range(200, 0, -10):
-        alpha = int(15 * (1 - r / 200))
-        draw.ellipse(
-            [(cx - r, cy - r), (cx + r, cy + r)],
-            fill=(58, 166, 255, alpha))
+    # Large swarm/download emblem on the left.
+    cx, cy = int(width*.25), int(height*.43)
+    nodes = [(cx-250,cy-120),(cx+255,cy-135),(cx-300,cy+95),
+             (cx+300,cy+100),(cx-180,cy+230),(cx+190,cy+235)]
+    for x, y in nodes:
+        draw.line((x, y, cx, cy), fill=(74, 170, 235, 75), width=3)
+        draw.ellipse((x-10,y-10,x+10,y+10), fill=(78,225,218,220),
+                     outline=(220,255,255,220), width=2)
+    draw.ellipse((cx-190,cy-190,cx+190,cy+190), fill=(5,16,30,190),
+                 outline=(73,166,255,200), width=5)
+    draw.ellipse((cx-164,cy-164,cx+164,cy+164), outline=(80,228,220,120), width=3)
+    draw.rounded_rectangle((cx-34,cy-118,cx+34,cy+36), radius=17,
+                           fill=(80,184,255,255))
+    draw.polygon(((cx-118,cy+8),(cx+118,cy+8),(cx,cy+130)),
+                 fill=(80,184,255,255))
 
-    # Decorative download arrow (large, subtle)
-    arrow_color_s = (58, 166, 255, 30)
-    ax, ay = cx, int(cy * 0.4)
-
-    stem_w = width // 20
-    stem_h = height // 8
-    draw.rectangle(
-        [(ax - stem_w // 2, ay - stem_h // 2),
-         (ax + stem_w // 2, ay + stem_h // 2)],
-        fill=arrow_color_s)
-
-    head_h = height // 6
-    for y in range(int(ay + stem_h // 2), int(ay + stem_h // 2 + head_h)):
-        progress = (y - (ay + stem_h // 2)) / head_h
-        half_w = int(width // 10 * progress)
-        draw.rectangle(
-            [(ax - half_w, y), (ax + half_w, y + 1)],
-            fill=arrow_color_s)
-
-    # Text
+    # Branding and short product promise on the right.
     try:
-        font_size = 40
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
-        except (IOError, OSError):
-            font = ImageFont.load_default()
-
-        text = "PS5Torrent"
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_w = bbox[2] - bbox[0]
-        draw.text(((width - text_w) // 2, int(height * 0.7)), text,
-                  font=font, fill=(200, 210, 220, 255))
-
-        subtext = "Download Manager for PlayStation 5"
-        font_size = 24
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
-        except (IOError, OSError):
-            pass
-        bbox2 = draw.textbbox((0, 0), subtext, font=font)
-        st_w = bbox2[2] - bbox2[0]
-        draw.text(((width - st_w) // 2, int(height * 0.75)), subtext,
-                  font=font, fill=(140, 150, 160, 200))
+        font_path = "/System/Library/Fonts/Helvetica.ttc"
+        if not os.path.exists(font_path):
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        title_font = ImageFont.truetype(font_path, 86)
+        body_font = ImageFont.truetype(font_path, 31)
+        small_font = ImageFont.truetype(font_path, 21)
+        tx = int(width*.52)
+        draw.text((tx, int(height*.33)), "PS5Torrent", font=title_font,
+                  fill=(238,248,255,255), stroke_width=1,
+                  stroke_fill=(23,64,105,255))
+        draw.text((tx, int(height*.46)), "Downloads no console, controle na TV.",
+                  font=body_font, fill=(155,190,222,255))
+        draw.rounded_rectangle((tx, int(height*.56), tx+440, int(height*.615)),
+                               radius=25, fill=(22,74,125,180),
+                               outline=(69,170,245,150), width=2)
+        draw.text((tx+24, int(height*.568)), "VELOCIDADE  •  PROGRESSO  •  ETA",
+                  font=small_font, fill=(113,230,224,255))
     except Exception:
         pass
 

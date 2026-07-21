@@ -1,5 +1,9 @@
 .DS_Store
 .deps/
+.build/
+dist/
+**/bin/
+**/obj/
 
 *.o
 *.elf
@@ -12,6 +16,9 @@ pkg/*.pkg
 pkg/*.tar.gz
 pkg/install_via_ftp.sh
 pkg/sce_sys/*.png
+!pkg/sce_sys/icon0.png
+!pkg/sce_sys/pic0.png
+!pkg/sce_sys/pic1.png
 
 __pycache__/
 *.py[cod]

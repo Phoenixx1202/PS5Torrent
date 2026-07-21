@@ -1,0 +1,148 @@
+diff --git a/src/LibProsperoPkg/PFS/Compression/ProsperoPfsDigest.cs b/src/LibProsperoPkg/PFS/Compression/ProsperoPfsDigest.cs
+index 375e822..ae0de03 100644
+--- a/src/LibProsperoPkg/PFS/Compression/ProsperoPfsDigest.cs
++++ b/src/LibProsperoPkg/PFS/Compression/ProsperoPfsDigest.cs
+@@ -33,7 +33,7 @@ public static class ProsperoPfsDigest
+     /// <summary>
+     /// Gets a value indicating whether the host runtime and operating system provide SHA3-256.
+     /// </summary>
+-    public static bool IsSupported => SHA3_256.IsSupported;
++    public static bool IsSupported => true;
+ 
+     /// <summary>
+     /// Computes the SHA3-256 digest of a single PFS block's <b>uncompressed</b> bytes, matching the
+@@ -45,7 +45,7 @@ public static class ProsperoPfsDigest
+     public static byte[] ComputeBlockDigest(ReadOnlySpan<byte> uncompressedBlock)
+     {
+         EnsureSupported();
+-        return SHA3_256.HashData(uncompressedBlock);
++        return LibProsperoPkg.Util.ManagedSha3.HashData(uncompressedBlock);
+     }
+ 
+     /// <summary>
+@@ -58,7 +58,7 @@ public static class ProsperoPfsDigest
+     public static int ComputeBlockDigest(ReadOnlySpan<byte> data, Span<byte> destination)
+     {
+         EnsureSupported();
+-        return SHA3_256.HashData(data, destination);
++        return LibProsperoPkg.Util.ManagedSha3.HashData(data, destination);
+     }
+ 
+     /// <summary>
+@@ -73,15 +73,12 @@ public static class ProsperoPfsDigest
+             return false;
+         EnsureSupported();
+         Span<byte> actual = stackalloc byte[DigestLength];
+-        SHA3_256.HashData(uncompressedBlock, actual);
++        LibProsperoPkg.Util.ManagedSha3.HashData(uncompressedBlock, actual);
+         return CryptographicOperations.FixedTimeEquals(actual, expected);
+     }
+ 
+     private static void EnsureSupported()
+     {
+-        if (!SHA3_256.IsSupported)
+-            throw new PlatformNotSupportedException(
+-                "SHA3-256 is required for the PS5 PFSv3 compression format but is not available on this host.");
+     }
+ 
+     /// <summary>The length, in bytes, of the header parameter slice (<c>container[0x08..0x20]</c>) the file digest hashes.</summary>
+@@ -126,12 +123,18 @@ public static class ProsperoPfsDigest
+         // header32[12..16] stays zero (alignment padding).
+         headerParams[8..].CopyTo(header32[16..]);  // param10 (0x10) + uncompressedSize (0x18)
+ 
+-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA3_256);
+-        hash.AppendData(header32);
+-        hash.AppendData(shuffleSection);
+-        hash.AppendData(boundarySection);
+-        hash.AppendData(blockHashSection);
+-        return hash.GetHashAndReset();
++        int totalLength = checked(header32.Length + shuffleSection.Length +
++            boundarySection.Length + blockHashSection.Length);
++        byte[] preimage = new byte[totalLength];
++        Span<byte> destination = preimage;
++        header32.CopyTo(destination);
++        destination = destination[header32.Length..];
++        shuffleSection.CopyTo(destination);
++        destination = destination[shuffleSection.Length..];
++        boundarySection.CopyTo(destination);
++        destination = destination[boundarySection.Length..];
++        blockHashSection.CopyTo(destination);
++        return LibProsperoPkg.Util.ManagedSha3.HashData(preimage);
+     }
+ 
+     /// <summary>
+diff --git a/src/LibProsperoPkg/PFS/ProsperoOuterPfsSignature.cs b/src/LibProsperoPkg/PFS/ProsperoOuterPfsSignature.cs
+index 44c13ed..b63d503 100644
+--- a/src/LibProsperoPkg/PFS/ProsperoOuterPfsSignature.cs
++++ b/src/LibProsperoPkg/PFS/ProsperoOuterPfsSignature.cs
+@@ -55,10 +55,7 @@ public static class ProsperoOuterPfsSignature
+     /// </summary>
+     public static byte[] ComputeBlockHash(ReadOnlySpan<byte> plaintextBlock)
+     {
+-        if (!SHA3_256.IsSupported)
+-            throw new PlatformNotSupportedException(
+-                "SHA3-256 is required for the PS5 outer-PFS block hash but is not available on this platform/runtime.");
+-        return SHA3_256.HashData(plaintextBlock);
++        return LibProsperoPkg.Util.ManagedSha3.HashData(plaintextBlock);
+     }
+ 
+     /// <summary>
+@@ -84,14 +81,10 @@ public static class ProsperoOuterPfsSignature
+         if (superblock.Length < SuperblockIcvCoverage)
+             throw new ArgumentException(
+                 $"Superblock must be at least 0x{SuperblockIcvCoverage:x} bytes to compute the ICV.", nameof(superblock));
+-        if (!SHA3_256.IsSupported)
+-            throw new PlatformNotSupportedException(
+-                "SHA3-256 is required for the PS5 outer-PFS superblock ICV but is not available on this platform/runtime.");
+-
+         Span<byte> region = stackalloc byte[SuperblockIcvCoverage];
+         superblock[..SuperblockIcvCoverage].CopyTo(region);
+         region.Slice(SuperblockIcvOffset, HashLength).Clear();
+-        return SHA3_256.HashData(region);
++        return LibProsperoPkg.Util.ManagedSha3.HashData(region);
+     }
+ 
+     /// <summary>
+diff --git a/src/LibProsperoPkg/PKG/ProsperoImageDigests.cs b/src/LibProsperoPkg/PKG/ProsperoImageDigests.cs
+index da5201a..c2710c2 100644
+--- a/src/LibProsperoPkg/PKG/ProsperoImageDigests.cs
++++ b/src/LibProsperoPkg/PKG/ProsperoImageDigests.cs
+@@ -156,10 +156,7 @@ public static class ProsperoImageDigests
+     /// </summary>
+     public static byte[] Sha3_256(ReadOnlySpan<byte> data)
+     {
+-        if (!SHA3_256.IsSupported)
+-            throw new PlatformNotSupportedException(
+-                "SHA3-256 is required for PS5 finalized-image digests but is not available on this platform/runtime.");
+-        return SHA3_256.HashData(data);
++        return LibProsperoPkg.Util.ManagedSha3.HashData(data);
+     }
+ 
+     /// <summary>
+diff --git a/src/LibProsperoPkg/Util/Crypto.cs b/src/LibProsperoPkg/Util/Crypto.cs
+index 8cf9883..3eeed0b 100644
+--- a/src/LibProsperoPkg/Util/Crypto.cs
++++ b/src/LibProsperoPkg/Util/Crypto.cs
+@@ -125,20 +125,14 @@ public static class Crypto
+     /// </summary>
+     public static byte[] Sha3_256(byte[] data)
+     {
+-        if (!SHA3_256.IsSupported)
+-            throw new PlatformNotSupportedException(
+-                "SHA3-256 is required for PS5 PFS key derivation and digests but is not available on this platform/runtime.");
+-        return SHA3_256.HashData(data);
++        return ManagedSha3.HashData(data);
+     }
+ 
+     /// <summary>Computes the SHA3-256 hash over the whole stream (used for PS5 CNT body/entry digests).</summary>
+     public static byte[] Sha3_256(Stream data)
+     {
+-        if (!SHA3_256.IsSupported)
+-            throw new PlatformNotSupportedException(
+-                "SHA3-256 is required for PS5 PFS digests but is not available on this platform/runtime.");
+         data.Position = 0;
+-        return SHA3_256.HashData(data);
++        return ManagedSha3.HashData(data);
+     }
+ 
+     /// <summary>

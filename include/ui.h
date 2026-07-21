@@ -43,4 +43,9 @@ void ui_error(const char *fmt, ...);
  */
 void ui_success(const char *fmt, ...);
 
+/**
+ * Show a visible PS5 system notification.
+ */
+void ui_notify(const char *fmt, ...);
+
 #endif /* PS5TORRENT_UI_H */

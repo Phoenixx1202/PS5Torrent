@@ -41,7 +41,8 @@ SRCS = src/main.c \
        src/ui.c \
        src/http_server.c \
        src/torrent_mgr.c \
-       src/storage_paths.c
+       src/storage_paths.c \
+       src/ps5_browser.c
 
 # Object files
 OBJS = $(SRCS:.c=.o)
@@ -56,9 +57,15 @@ CFLAGS = -O2 \
          -Wno-unused-parameter
 
 # Linker flags
-LDLIBS = -lufs
+LDLIBS = -lufs -lSceSystemService -lSceUserService
 
 all: $(TARGET).elf
+
+# Keep the embedded dashboard in sync with the editable HTML source.
+src/web_content.h: src/web/index.html scripts/embed_web.py
+	python3 scripts/embed_web.py $< $@
+
+src/main.o: src/web_content.h
 
 # Compile source files
 %.o: %.c

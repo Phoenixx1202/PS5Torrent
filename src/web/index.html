@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07101f">
+  <title>PS5Torrent</title>
+  <style>
+    *{box-sizing:border-box}
+    :root{--bg:#050a13;--panel:#0c1524;--panel2:#111d30;--line:#23344c;--text:#f4f8ff;--muted:#93a4ba;--blue:#4fa7ff;--blue2:#1769e0;--cyan:#54e2db;--green:#45d483;--yellow:#ffbe55;--red:#ff6b71;--shadow:0 22px 60px rgba(0,0,0,.34)}
+    html{background:var(--bg)}
+    body{margin:0;min-height:100vh;color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:radial-gradient(circle at 82% -8%,rgba(34,118,255,.18),transparent 35%),radial-gradient(circle at -5% 86%,rgba(33,226,217,.08),transparent 28%),var(--bg)}
+    button,input,textarea{font:inherit}
+    button{color:inherit}
+    button:focus-visible,input:focus-visible,textarea:focus-visible,.path:focus-visible{outline:3px solid #fff;outline-offset:3px;box-shadow:0 0 0 7px rgba(79,167,255,.38)}
+    .shell{max-width:1500px;margin:auto;padding:30px clamp(22px,4vw,68px) 64px}
+    .topbar{display:flex;align-items:center;gap:18px;margin-bottom:28px}
+    .brand{display:flex;align-items:center;gap:14px;min-width:0}
+    .logo{position:relative;display:grid;place-items:center;width:54px;height:54px;flex:0 0 auto;border-radius:17px;background:linear-gradient(145deg,#1e75ee,#58d8ea);box-shadow:0 12px 32px rgba(30,117,238,.34)}
+    .logo svg{width:32px;height:32px;filter:drop-shadow(0 4px 8px rgba(0,0,0,.25))}
+    .brand h1{margin:0;font-size:22px;letter-spacing:-.4px}
+    .brand p{margin:2px 0 0;color:var(--muted);font-size:12px}
+    .connection{margin-left:auto;display:flex;align-items:center;gap:9px;padding:9px 13px;border:1px solid var(--line);border-radius:999px;background:rgba(12,21,36,.84);font-size:12px;color:var(--muted)}
+    .connection-dot{width:9px;height:9px;border-radius:50%;background:var(--yellow);box-shadow:0 0 0 4px rgba(255,190,85,.12)}
+    .connection.online .connection-dot{background:var(--green);box-shadow:0 0 0 4px rgba(69,212,131,.12)}
+    .connection.offline .connection-dot{background:var(--red);box-shadow:0 0 0 4px rgba(255,107,113,.12)}
+    .connection.online .connection-label{color:#d9ffea}
+    .toolbar{display:flex;gap:10px}
+    .btn{border:1px solid var(--line);border-radius:12px;min-height:44px;padding:0 17px;display:inline-flex;align-items:center;justify-content:center;gap:9px;background:var(--panel2);cursor:pointer;font-weight:700;transition:transform .16s,border-color .16s,background .16s}
+    .btn:hover{border-color:#54739b;transform:translateY(-1px)}
+    .btn.primary{border-color:transparent;background:linear-gradient(135deg,var(--blue2),#268cf7);box-shadow:0 10px 25px rgba(23,105,224,.25)}
+    .btn.danger{border-color:rgba(255,107,113,.35);background:rgba(255,107,113,.10);color:#ffc6c9}
+    .btn.small{min-height:36px;padding:0 13px;font-size:12px;border-radius:9px}
+    .btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+    .icon{width:18px;height:18px;display:inline-block}
+    .hero{position:relative;overflow:hidden;padding:30px;border:1px solid #1e3b61;border-radius:24px;background:linear-gradient(125deg,rgba(17,42,75,.95),rgba(8,19,34,.96) 62%,rgba(11,35,48,.96));box-shadow:var(--shadow);margin-bottom:18px}
+    .hero:after{content:"";position:absolute;width:330px;height:330px;right:-105px;top:-190px;border:50px solid rgba(79,167,255,.08);border-radius:50%}
+    .hero-row{display:flex;align-items:flex-end;justify-content:space-between;gap:26px;position:relative;z-index:1}
+    .eyebrow{font-size:11px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;color:var(--cyan)}
+    .hero h2{font-size:clamp(27px,3.2vw,45px);line-height:1.08;letter-spacing:-1.6px;margin:8px 0 10px;max-width:730px}
+    .hero-copy{margin:0;color:#acbdd0;max-width:690px}
+    .hero-meta{display:flex;gap:8px;margin-top:20px;flex-wrap:wrap}
+    .chip{font-size:11px;font-weight:700;color:#bcd0e7;border:1px solid rgba(129,166,207,.23);background:rgba(4,11,20,.3);border-radius:999px;padding:6px 10px}
+    .summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}
+    .metric{padding:18px;border:1px solid var(--line);border-radius:17px;background:linear-gradient(145deg,rgba(17,29,48,.92),rgba(9,17,30,.92));min-width:0}
+    .metric-label{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;margin-bottom:7px}
+    .metric-value{font-size:clamp(20px,2.3vw,31px);font-weight:800;letter-spacing:-.7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .metric-sub{font-size:11px;color:#60758f;margin-top:3px}
+    .panel{border:1px solid var(--line);border-radius:20px;background:rgba(10,18,31,.93);box-shadow:0 16px 45px rgba(0,0,0,.18);overflow:hidden}
+    .panel-head{display:flex;align-items:center;gap:16px;padding:20px 22px;border-bottom:1px solid var(--line)}
+    .panel-title{font-size:18px;font-weight:800;letter-spacing:-.3px}
+    .panel-note{font-size:11px;color:var(--muted);margin-top:2px}
+    .filters{margin-left:auto;display:flex;gap:5px;padding:4px;border:1px solid var(--line);background:#091220;border-radius:11px}
+    .filter{border:0;background:transparent;color:var(--muted);padding:7px 11px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:700}
+    .filter.active{background:#1b304d;color:#fff}
+    .torrent-list{padding:14px}
+    .torrent{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:15px;padding:18px;border:1px solid #1d2d43;border-radius:15px;background:linear-gradient(140deg,#101c2e,#0b1422);margin-bottom:10px}
+    .torrent:last-child{margin-bottom:0}
+    .torrent:hover{border-color:#385a83}
+    .torrent-top{display:flex;align-items:flex-start;gap:12px}
+    .torrent-symbol{display:grid;place-items:center;width:40px;height:40px;flex:0 0 auto;border-radius:12px;background:rgba(79,167,255,.12);color:var(--blue)}
+    .torrent-symbol svg{width:22px;height:22px}
+    .torrent-name{font-size:15px;font-weight:800;line-height:1.3;word-break:break-word}
+    .torrent-hash{font:10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#60758f;margin-top:4px;word-break:break-all}
+    .state{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:5px 9px;border-radius:999px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;background:rgba(147,164,186,.10);color:#b8c5d4}
+    .state:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+    .state-downloading{color:#78bbff;background:rgba(79,167,255,.12)}
+    .state-done{color:#6ce39b;background:rgba(69,212,131,.11)}
+    .state-seeding{color:#63e9df;background:rgba(84,226,219,.11)}
+    .state-error{color:#ff8e93;background:rgba(255,107,113,.11)}
+    .progress-line{display:flex;align-items:center;gap:12px;margin:15px 0 12px}
+    .track{height:9px;flex:1;overflow:hidden;border-radius:99px;background:#050b13;border:1px solid #17263a}
+    .fill{height:100%;min-width:0;border-radius:99px;background:linear-gradient(90deg,#2078e8,#59dbea);box-shadow:0 0 17px rgba(79,167,255,.35);transition:width .55s ease}
+    .torrent.done .fill{background:linear-gradient(90deg,#28b86d,#63e0a0)}
+    .pct{width:47px;text-align:right;font-size:13px;font-weight:800;color:#dcecff}
+    .details{display:grid;grid-template-columns:repeat(5,minmax(78px,1fr));gap:8px}
+    .detail{border-left:1px solid #22354e;padding-left:10px;min-width:0}
+    .detail:first-child{border-left:0;padding-left:0}
+    .detail span{display:block;color:#6f839d;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
+    .detail strong{display:block;font-size:12px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .save-path{font:10px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#6e829c;margin-top:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .torrent-actions{display:flex;align-items:center;gap:7px}
+    .error-msg{grid-column:1/-1;padding:9px 11px;border-radius:9px;color:#ffc3c6;background:rgba(255,107,113,.08);font-size:11px}
+    .empty{display:grid;place-items:center;text-align:center;min-height:290px;padding:35px;color:var(--muted)}
+    .empty-mark{display:grid;place-items:center;width:66px;height:66px;border-radius:20px;background:#101e32;color:var(--blue);margin:0 auto 15px}
+    .empty-mark svg{width:34px;height:34px}
+    .empty strong{display:block;color:var(--text);font-size:17px;margin-bottom:5px}
+    .hidden{display:none!important}
+    .modal-backdrop{position:fixed;inset:0;z-index:100;background:rgba(0,5,12,.78);backdrop-filter:blur(12px);display:grid;place-items:center;padding:25px}
+    .modal{width:min(720px,100%);max-height:92vh;overflow:auto;border:1px solid #35577e;border-radius:22px;background:#0b1626;box-shadow:0 30px 100px rgba(0,0,0,.62)}
+    .modal-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;padding:20px 22px;border-bottom:1px solid var(--line);background:rgba(11,22,38,.97)}
+    .modal-head h3{margin:0;font-size:19px}
+    .close{margin-left:auto;width:38px;height:38px;border:1px solid var(--line);border-radius:10px;background:#111f33;cursor:pointer;font-size:20px}
+    .form{padding:22px}
+    .label{display:block;color:#aabbd0;font-size:12px;font-weight:700;margin:0 0 7px}
+    .drop{display:grid;place-items:center;text-align:center;min-height:125px;border:2px dashed #345579;border-radius:14px;background:#0c1a2c;color:#9fb1c7;cursor:pointer;padding:20px;transition:border .16s,background .16s}
+    .drop:hover,.drop.has-file{border-color:var(--blue);background:rgba(79,167,255,.07)}
+    .drop strong{display:block;color:#eef6ff;margin-top:7px}
+    input[type=file]{display:none}
+    textarea,.text-input{width:100%;border:1px solid #2c4565;border-radius:11px;background:#08111e;color:#fff;padding:12px;resize:vertical;min-height:72px}
+    .or{display:flex;align-items:center;gap:12px;color:#637892;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin:17px 0}
+    .or:before,.or:after{content:"";height:1px;flex:1;background:var(--line)}
+    .hint{margin:7px 0 0;font-size:10px;color:#6e829b}
+    .paths{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:210px;overflow:auto;padding:2px}
+    .path{border:1px solid #263d59;border-radius:11px;background:#0d1a2b;text-align:left;padding:11px;cursor:pointer;min-width:0}
+    .path.selected{border-color:var(--blue);background:rgba(42,125,231,.14)}
+    .path.unavailable{opacity:.45}
+    .path-title{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800}
+    .path-code{font:10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#758aa3;margin-top:4px;overflow:hidden;text-overflow:ellipsis}
+    .form-footer{display:flex;justify-content:flex-end;gap:9px;margin-top:21px;padding-top:18px;border-top:1px solid var(--line)}
+    .toast-wrap{position:fixed;z-index:200;right:24px;bottom:24px;display:grid;gap:8px}
+    .toast{max-width:390px;padding:12px 15px;border:1px solid #345575;border-radius:11px;background:#122239;box-shadow:var(--shadow);font-size:12px;animation:toastin .2s ease}
+    .toast.error{border-color:#92454c;color:#ffd1d4}
+    .toast.success{border-color:#28754d;color:#d9ffea}
+    @keyframes toastin{from{opacity:0;transform:translateY(8px)}}
+    @media(max-width:900px){.summary{grid-template-columns:repeat(2,1fr)}.hero-row{align-items:flex-start;flex-direction:column}.details{grid-template-columns:repeat(3,1fr)}.torrent{grid-template-columns:1fr}.torrent-actions{justify-content:flex-end}}
+    @media(max-width:620px){.shell{padding:16px 12px 42px}.brand p{display:none}.connection-label{display:none}.topbar{gap:10px}.toolbar .btn span{display:none}.hero{padding:22px 18px;border-radius:18px}.hero h2{font-size:28px}.summary{gap:8px}.metric{padding:14px}.metric-value{font-size:20px}.panel-head{align-items:flex-start;flex-direction:column}.filters{margin-left:0;width:100%;overflow:auto}.filter{flex:1}.torrent{padding:14px}.details{grid-template-columns:repeat(2,1fr)}.detail:nth-child(odd){border-left:0;padding-left:0}.paths{grid-template-columns:1fr}.state{margin-left:0}.torrent-top{flex-wrap:wrap}}
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 5-5m-5 5-5-5"/><path d="M5 20h14"/><circle cx="5" cy="5" r="1" fill="white" stroke="none"/><circle cx="19" cy="5" r="1" fill="white" stroke="none"/></svg></div>
+        <div><h1>PS5Torrent</h1><p>Central de downloads do console</p></div>
+      </div>
+      <div class="connection" id="connection"><span class="connection-dot"></span><span class="connection-label">Conectando...</span></div>
+      <div class="toolbar"><button class="btn primary" id="openAdd"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span>Novo torrent</span></button></div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-row">
+        <div>
+          <div class="eyebrow">Download em segundo plano</div>
+          <h2>Acompanhe tudo sem sair do sofá.</h2>
+          <p class="hero-copy">Veja velocidade, progresso, tempo restante e peers direto no navegador do PS5. O serviço continua trabalhando enquanto o payload estiver ativo.</p>
+          <div class="hero-meta"><span class="chip" id="versionChip">PS5Torrent</span><span class="chip">Atualização automática</span><span class="chip" id="capacityChip">Até 8 torrents</span></div>
+        </div>
+        <button class="btn" id="refreshNow"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M18 9a7 7 0 0 0-12-2L4 11m2 4a7 7 0 0 0 12 2l2-4"/></svg>Atualizar</button>
+      </div>
+    </section>
+
+    <section class="summary" aria-label="Resumo">
+      <article class="metric"><div class="metric-label">Velocidade total</div><div class="metric-value" id="totalSpeed">0 B/s</div><div class="metric-sub">download agora</div></article>
+      <article class="metric"><div class="metric-label">Em andamento</div><div class="metric-value" id="activeCount">0</div><div class="metric-sub" id="activeSub">nenhum download</div></article>
+      <article class="metric"><div class="metric-label">Transferido</div><div class="metric-value" id="downloadedTotal">0 B</div><div class="metric-sub">nesta sessão</div></article>
+      <article class="metric"><div class="metric-label">Peers ativos</div><div class="metric-value" id="peerCount">0</div><div class="metric-sub">conexões recebendo dados</div></article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div><div class="panel-title">Downloads</div><div class="panel-note" id="lastUpdate">Aguardando o console...</div></div>
+        <div class="filters" role="tablist">
+          <button class="filter active" data-filter="all">Todos</button>
+          <button class="filter" data-filter="downloading">Baixando</button>
+          <button class="filter" data-filter="done">Concluídos</button>
+          <button class="filter" data-filter="error">Atenção</button>
+        </div>
+      </div>
+      <div class="torrent-list" id="torrentList"></div>
+    </section>
+  </main>
+
+  <div class="modal-backdrop hidden" id="addModal" role="dialog" aria-modal="true" aria-labelledby="addTitle">
+    <section class="modal">
+      <div class="modal-head"><h3 id="addTitle">Adicionar download</h3><button class="close" id="closeAdd" aria-label="Fechar">×</button></div>
+      <div class="form">
+        <label class="label">Arquivo .torrent</label>
+        <label class="drop" id="dropZone" for="fileInput"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 5-5m-5 5-5-5"/><path d="M5 20h14"/></svg><strong id="fileLabel">Escolher arquivo .torrent</strong><span id="fileHelp">Selecione no armazenamento acessível pelo navegador</span></label>
+        <input type="file" id="fileInput" accept=".torrent,application/x-bittorrent">
+        <div class="or">ou link experimental</div>
+        <label class="label" for="magnetInput">Link magnet</label>
+        <textarea id="magnetInput" placeholder="magnet:?xt=urn:btih:..."></textarea>
+        <p class="hint">Links magnet ainda dependem de suporte a metadados BEP-9. Para downloads confiáveis, use o arquivo .torrent.</p>
+        <div style="height:18px"></div>
+        <label class="label">Salvar em</label>
+        <div class="paths" id="storagePaths"></div>
+        <div style="height:10px"></div>
+        <label class="label" for="customPath">Outro caminho</label>
+        <input class="text-input" id="customPath" type="text" placeholder="/mnt/usb0/" style="min-height:44px">
+        <div class="form-footer"><button class="btn" id="cancelAdd">Cancelar</button><button class="btn primary" id="startDownload">Iniciar download</button></div>
+      </div>
+    </section>
+  </div>
+  <div class="toast-wrap" id="toasts" aria-live="polite"></div>
+
+  <script>
+    var state={torrents:[],filter:'all',selectedPath:'/mnt/usb0/',selectedFile:null,busy:false};
+    var labels={downloading:'Baixando',done:'Concluído',seeding:'Enviando',stopped:'Pausado',error:'Atenção'};
+    var el=function(id){return document.getElementById(id)};
+    function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+    function fmtBytes(bytes){var n=Number(bytes)||0,u=['B','KB','MB','GB','TB'],i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(i&&n<100?1:0)+' '+u[i]}
+    function fmtSpeed(bytes){return fmtBytes(bytes)+'/s'}
+    function fmtTime(seconds){if(!isFinite(seconds)||seconds<=0)return'Calculando';if(seconds<60)return Math.ceil(seconds)+' s';if(seconds<3600)return Math.ceil(seconds/60)+' min';if(seconds<86400)return Math.floor(seconds/3600)+' h '+Math.ceil((seconds%3600)/60)+' min';return Math.floor(seconds/86400)+' d '+Math.ceil((seconds%86400)/3600)+' h'}
+    function iconDownload(){return'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 5-5m-5 5-5-5"/><path d="M5 20h14"/></svg>'}
+    function setConnection(mode,text){var c=el('connection');c.className='connection '+mode;c.querySelector('.connection-label').textContent=text}
+    function toast(message,type){var node=document.createElement('div');node.className='toast '+(type||'');node.textContent=message;el('toasts').appendChild(node);setTimeout(function(){node.remove()},4200)}
+    function openModal(){el('addModal').classList.remove('hidden');setTimeout(function(){el('fileInput').focus()},50)}
+    function closeModal(){el('addModal').classList.add('hidden')}
+    function setFilter(filter){state.filter=filter;document.querySelectorAll('.filter').forEach(function(btn){btn.classList.toggle('active',btn.getAttribute('data-filter')===filter)});render()}
+    function visibleTorrent(t){if(state.filter==='all')return true;if(state.filter==='error')return t.state==='error'||t.state==='stopped';return t.state===state.filter}
+    function torrentCard(t){
+      var pct=Math.max(0,Math.min(100,Math.round((Number(t.progress)||0)*100)));
+      var remaining=Math.max(0,(Number(t.size)||0)-(Number(t.downloaded)||0));
+      var eta=t.state==='done'?'Finalizado':(t.state==='downloading'?fmtTime(remaining/(Number(t.speed_down)||0)):'—');
+      var canStop=t.state==='downloading'||t.state==='seeding';
+      var canStart=t.state==='stopped'||t.state==='error';
+      return '<article class="torrent '+(t.state==='done'?'done':'')+'">'+
+        '<div><div class="torrent-top"><div class="torrent-symbol">'+iconDownload()+'</div><div style="min-width:0"><div class="torrent-name">'+esc(t.name||'Torrent sem nome')+'</div><div class="torrent-hash">'+esc(t.hash||'')+'</div></div><span class="state state-'+esc(t.state)+'">'+esc(labels[t.state]||t.state)+'</span></div>'+
+        '<div class="progress-line"><div class="track"><div class="fill" style="width:'+pct+'%"></div></div><div class="pct">'+pct+'%</div></div>'+
+        '<div class="details"><div class="detail"><span>Velocidade</span><strong>'+fmtSpeed(t.speed_down)+'</strong></div><div class="detail"><span>Restante</span><strong>'+fmtBytes(remaining)+'</strong></div><div class="detail"><span>Tempo</span><strong>'+eta+'</strong></div><div class="detail"><span>Baixado</span><strong>'+fmtBytes(t.downloaded)+'</strong></div><div class="detail"><span>Peers</span><strong>'+Number(t.active_peers||0)+' / '+Number(t.peers||0)+'</strong></div></div>'+
+        '<div class="save-path">Destino: '+esc(t.save_path||'—')+'</div></div>'+
+        '<div class="torrent-actions">'+(canStop?'<button class="btn small" data-action="stop" data-id="'+t.id+'">Pausar</button>':'')+(canStart?'<button class="btn small primary" data-action="start" data-id="'+t.id+'">Reiniciar</button>':'')+'<button class="btn small danger" data-action="remove" data-id="'+t.id+'">Remover</button></div>'+
+        (t.error?'<div class="error-msg">'+esc(t.error)+'</div>':'')+'</article>'
+    }
+    function render(){
+      var torrents=state.torrents||[],active=0,speed=0,downloaded=0,peers=0;
+      torrents.forEach(function(t){if(t.state==='downloading'||t.state==='seeding')active++;speed+=Number(t.speed_down)||0;downloaded+=Number(t.downloaded)||0;peers+=Number(t.active_peers)||0});
+      el('totalSpeed').textContent=fmtSpeed(speed);el('activeCount').textContent=active;el('activeSub').textContent=active===1?'1 download ativo':active+' downloads ativos';el('downloadedTotal').textContent=fmtBytes(downloaded);el('peerCount').textContent=peers;
+      var shown=torrents.filter(visibleTorrent),list=el('torrentList');
+      if(!shown.length){list.innerHTML='<div class="empty"><div><div class="empty-mark">'+iconDownload()+'</div><strong>'+(torrents.length?'Nada neste filtro':'Nenhum download adicionado')+'</strong><span>'+(torrents.length?'Selecione outra categoria acima.':'Use “Novo torrent” para começar.')+'</span></div></div>';return}
+      list.innerHTML=shown.map(torrentCard).join('');
+    }
+    function fetchJson(url,options){return fetch(url,options).then(function(response){return response.json().then(function(data){if(!response.ok)throw new Error(data.error||'Falha na solicitação');return data})})}
+    function refresh(){
+      return Promise.all([fetchJson('/api/torrents'),fetchJson('/api/status')]).then(function(results){state.torrents=results[0].torrents||[];var info=results[1];setConnection('online','Console conectado');el('versionChip').textContent='PS5Torrent v'+(info.version||'2.0');el('capacityChip').textContent='Até '+(info.capacity||8)+' torrents';el('lastUpdate').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});render()}).catch(function(){setConnection('offline','Sem conexão');el('lastUpdate').textContent='Não foi possível falar com o serviço';render()})
+    }
+    function loadPaths(){
+      return fetchJson('/api/paths').then(function(data){var paths=data.paths||[],available=paths.filter(function(p){return p.exists});if(available.length&&!available.some(function(p){return p.path===state.selectedPath}))state.selectedPath=available[0].path;var box=el('storagePaths');box.innerHTML=paths.map(function(p){return'<button type="button" class="path '+(p.path===state.selectedPath?'selected ':'')+(p.exists?'':'unavailable')+'" data-path="'+esc(p.path)+'" '+(p.exists?'':'disabled')+'><div class="path-title"><span>'+(p.removable?'USB':'Disco')+'</span><span>'+esc(p.label)+'</span></div><div class="path-code">'+esc(p.path)+(p.exists?' · disponível':' · não montado')+'</div></button>'}).join('')}).catch(function(){el('storagePaths').innerHTML='<div class="hint">Não foi possível consultar os discos agora.</div>'})
+    }
+    function selectPath(path){state.selectedPath=path;el('customPath').value='';document.querySelectorAll('.path').forEach(function(node){node.classList.toggle('selected',node.getAttribute('data-path')===path)})}
+    function torrentAction(id,action){if(action==='remove'&&!confirm('Remover este torrent da lista? Os arquivos já gravados não serão apagados.'))return;fetchJson('/api/torrents/'+id+'/'+action,{method:'POST'}).then(function(){toast(action==='remove'?'Torrent removido.':'Status atualizado.','success');refresh()}).catch(function(e){toast(e.message,'error')})}
+    function resetForm(){state.selectedFile=null;el('fileInput').value='';el('fileLabel').textContent='Escolher arquivo .torrent';el('fileHelp').textContent='Selecione no armazenamento acessível pelo navegador';el('dropZone').classList.remove('has-file');el('magnetInput').value=''}
+    function addTorrent(){
+      if(state.busy)return;var magnet=el('magnetInput').value.trim(),path=el('customPath').value.trim()||state.selectedPath;
+      if(!state.selectedFile&&!magnet){toast('Escolha um arquivo .torrent ou informe um link magnet.','error');return}
+      state.busy=true;el('startDownload').disabled=true;el('startDownload').textContent='Adicionando...';
+      var request;if(state.selectedFile){var form=new FormData();form.append('torrent',state.selectedFile);form.append('path',path);request=fetchJson('/api/torrents/upload',{method:'POST',body:form})}else{request=fetchJson('/api/torrents/add',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'magnet='+encodeURIComponent(magnet)+'&path='+encodeURIComponent(path)})}
+      function finish(){state.busy=false;el('startDownload').disabled=false;el('startDownload').textContent='Iniciar download'}
+      request.then(function(data){toast('Download adicionado: '+(data.name||'torrent'),'success');resetForm();closeModal();refresh();finish()},function(e){toast(e.message,'error');finish()})
+    }
+    el('openAdd').onclick=function(){openModal();loadPaths()};el('closeAdd').onclick=closeModal;el('cancelAdd').onclick=closeModal;el('startDownload').onclick=addTorrent;el('refreshNow').onclick=refresh;
+    el('fileInput').onchange=function(event){var file=event.target.files[0];state.selectedFile=file||null;if(file){el('fileLabel').textContent=file.name;el('fileHelp').textContent=fmtBytes(file.size)+' · pronto para enviar';el('dropZone').classList.add('has-file')}};
+    el('customPath').oninput=function(){if(this.value.trim())document.querySelectorAll('.path').forEach(function(node){node.classList.remove('selected')})};
+    el('storagePaths').onclick=function(event){var node=event.target.closest('.path');if(node)selectPath(node.getAttribute('data-path'))};
+    el('torrentList').onclick=function(event){var btn=event.target.closest('[data-action]');if(btn)torrentAction(Number(btn.getAttribute('data-id')),btn.getAttribute('data-action'))};
+    document.querySelectorAll('.filter').forEach(function(btn){btn.onclick=function(){setFilter(btn.getAttribute('data-filter'))}});
+    el('addModal').onclick=function(event){if(event.target===el('addModal'))closeModal()};
+    document.addEventListener('keydown',function(event){if(event.key==='Escape')closeModal();if(event.key==='n'&&!/INPUT|TEXTAREA/.test(document.activeElement.tagName))openModal()});
+    loadPaths();refresh();setInterval(refresh,2000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<psproject fmt="gp4" version="1000">
+  <volume>
+    <volume_type>pkg_ps5_app</volume_type>
+    <volume_id>PS5VOLUME</volume_id>
+    <volume_ts>2026-07-21 00:00:00</volume_ts>
+    <package
+      content_id="IV9999-PPSA00001_00-PS5TORRENT000001"
+      passcode="00000000000000000000000000000000"
+      storage_type="digital50"
+      app_type="full"
+      app_path=""
+      c_date="actual_datetime" />
+    <chunk_info chunk_count="1" scenario_count="1">
+      <chunks>
+        <chunk id="0" layer_no="0" label="Chunk #0" />
+      </chunks>
+      <scenarios default_id="0">
+        <scenario id="0" type="sp" initial_chunk_count="1" label="Scenario #0">0</scenario>
+      </scenarios>
+    </chunk_info>
+  </volume>
+  <files img_no="0">
+    <file targ_path="sce_sys/param.json" orig_path="sce_sys/param.json" />
+    <file targ_path="sce_sys/icon0.png" orig_path="sce_sys/icon0.png" />
+    <file targ_path="sce_sys/pic0.png" orig_path="sce_sys/pic0.png" />
+    <file targ_path="sce_sys/pic1.png" orig_path="sce_sys/pic1.png" />
+    <file targ_path="eboot.bin" orig_path="eboot.bin" />
+  </files>
+  <rootdir>
+    <dir targ_name="sce_sys" />
+  </rootdir>
+</psproject>
