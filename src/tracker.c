@@ -90,7 +90,7 @@ tracker_response_t *tracker_announce(const char *tracker_url,
 
     char request[4096];
     int req_len = snprintf(request, sizeof(request),
-        "GET %s?info_hash=%s"
+        "GET %s%cinfo_hash=%s"
         "&peer_id=%s"
         "&port=%u"
         "&uploaded=%lld"
@@ -104,6 +104,7 @@ tracker_response_t *tracker_announce(const char *tracker_url,
         "Connection: close\r\n"
         "\r\n",
         path_start,
+        strchr(path_start, '?') ? '&' : '?',
         info_hash_enc,
         peer_id_enc,
         (unsigned int)params->port,

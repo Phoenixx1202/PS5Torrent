@@ -392,7 +392,8 @@ const char *torrent_mgr_error_str(torrent_error_t err)
  */
 static int announce_to_tracker(managed_torrent_t *mt)
 {
-    if (!mt->torrent->announce) return -1;
+    if (!mt->torrent->announce && mt->torrent->announce_list_count == 0)
+        return -1;
 
     tracker_params_t params;
     params.info_hash = mt->torrent->info_hash;
@@ -403,32 +404,55 @@ static int announce_to_tracker(managed_torrent_t *mt)
     params.left = (int64_t)(mt->total_size - mt->downloaded);
     params.compact = 1;
 
-    tracker_response_t *tr = tracker_announce(mt->torrent->announce, &params);
-    if (!tr) return -1;
-
+    int contacted = 0;
+    int peers_reported = 0;
     mt->tracker_announces++;
+    mt->tracker_interval = 30;
 
-    if (tr->failure_reason) {
-        tracker_response_free(tr);
-        return -1;
-    }
+    /* Try the primary URL and every tier from announce-list. Many torrents
+     * keep a dead primary tracker but contain working HTTP fallbacks. */
+    size_t url_count = mt->torrent->announce_list_count +
+                       (mt->torrent->announce ? 1u : 0u);
+    for (size_t url_index = 0; url_index < url_count; url_index++) {
+        const char *url = url_index == 0 && mt->torrent->announce
+                        ? mt->torrent->announce
+                        : mt->torrent->announce_list[
+                            url_index - (mt->torrent->announce ? 1u : 0u)];
+        if (!url || strncmp(url, "http://", 7) != 0) continue;
+        if (mt->torrent->announce && url != mt->torrent->announce &&
+            strcmp(url, mt->torrent->announce) == 0) continue;
 
-    mt->tracker_interval = tr->interval;
+        tracker_response_t *tr = tracker_announce(url, &params);
+        if (!tr) continue;
+        contacted++;
+        if (tr->failure_reason) {
+            tracker_response_free(tr);
+            continue;
+        }
+        if (tr->interval > mt->tracker_interval)
+            mt->tracker_interval = tr->interval;
+        peers_reported += tr->num_peers;
 
-    /* Connect to new peers */
-    if (tr->num_peers > 0 && tr->peers) {
-        for (int i = 0; i < tr->num_peers && mt->num_peers < MAX_PEERS_PER_TORRENT; i++) {
-            /* Check if already connected */
+        /* Connect to new peers. */
+        if (tr->num_peers > 0 && tr->peers) {
+          for (int i = 0; i < tr->num_peers; i++) {
+            /* Reuse a disconnected slot for the same peer, and avoid opening
+             * a duplicate socket when it is already active. */
+            int peer_slot = -1;
             int already = 0;
             for (int j = 0; j < mt->num_peers; j++) {
-                if (mt->peers[j].sock >= 0 &&
-                    mt->peers[j].addr.ip == tr->peers[i].ip &&
+                if (mt->peers[j].addr.ip == tr->peers[i].ip &&
                     mt->peers[j].addr.port == tr->peers[i].port) {
-                    already = 1;
+                    if (mt->peers[j].sock >= 0)
+                        already = 1;
+                    else
+                        peer_slot = j;
                     break;
                 }
             }
             if (already) continue;
+            if (peer_slot < 0 && mt->num_peers >= MAX_PEERS_PER_TORRENT)
+                continue;
 
             /* Connect to peer */
             int sock = net_tcp_connect(tr->peers[i].ip,
@@ -445,7 +469,9 @@ static int announce_to_tracker(managed_torrent_t *mt)
             }
 
             /* Setup peer */
-            torrent_peer_t *p = &mt->peers[mt->num_peers];
+            if (peer_slot < 0)
+                peer_slot = mt->num_peers++;
+            torrent_peer_t *p = &mt->peers[peer_slot];
             p->sock = sock;
             p->addr = tr->peers[i];
             memcpy(p->peer_id, remote_id, 20);
@@ -453,15 +479,32 @@ static int announce_to_tracker(managed_torrent_t *mt)
             p->am_interested = 0;
             p->last_request = 0;
 
-            mt->num_peers++;
             mt->active_peers++;
 
             peer_send_interested(sock);
+          }
         }
+        tracker_response_free(tr);
     }
 
-    tracker_response_free(tr);
-    return 0;
+    if (mt->active_peers > 0) {
+        mt->error_type = TERR_NONE;
+        mt->error_msg[0] = '\0';
+        return 0;
+    }
+
+    if (contacted == 0) {
+        snprintf(mt->error_msg, sizeof(mt->error_msg),
+                 "Nenhum tracker HTTP compatível respondeu; HTTPS/UDP ainda não são suportados");
+    } else if (peers_reported == 0) {
+        snprintf(mt->error_msg, sizeof(mt->error_msg),
+                 "Trackers responderam, mas não há peers disponíveis; nova tentativa automática");
+    } else {
+        snprintf(mt->error_msg, sizeof(mt->error_msg),
+                 "Peers encontrados, mas as conexões falharam; nova tentativa automática");
+    }
+    mt->error_type = TERR_NO_PEERS;
+    return -1;
 }
 
 /**
@@ -588,20 +631,9 @@ int torrent_mgr_tick(void)
         }
 
         /* If no active peers, try to re-announce */
-        if (mt->active_peers == 0 && now - mt->last_announce_time >= 5) {
+        if (mt->active_peers == 0 && now - mt->last_announce_time >= 30) {
             announce_to_tracker(mt);
             mt->last_announce_time = now;
-        }
-
-        /* Check if stalled */
-        if (mt->active_peers == 0 && mt->tracker_announces > 3) {
-            mt->state = TORRENT_ERROR;
-            mt->speed_down = 0;
-            mt->speed_up = 0;
-            mt->error_type = TERR_NO_PEERS;
-            snprintf(mt->error_msg, sizeof(mt->error_msg),
-                     "No peers found after %d tracker announces",
-                     mt->tracker_announces);
         }
     }
 
