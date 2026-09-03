@@ -125,6 +125,28 @@ int http_get_param(const char *query, const char *key,
     return 0;
 }
 
+static const char *find_bytes(const char *haystack, size_t haystack_len,
+                              const char *needle, size_t needle_len)
+{
+    if (!haystack || !needle || needle_len == 0 || needle_len > haystack_len)
+        return NULL;
+
+    for (size_t i = 0; i <= haystack_len - needle_len; i++) {
+        if (haystack[i] == needle[0] &&
+            memcmp(haystack + i, needle, needle_len) == 0)
+            return haystack + i;
+    }
+    return NULL;
+}
+
+static const char *multipart_data_start(const char *field, const char *end)
+{
+    const char *blank = find_bytes(field, (size_t)(end - field), "\r\n\r\n", 4);
+    if (blank) return blank + 4;
+    blank = find_bytes(field, (size_t)(end - field), "\n\n", 2);
+    return blank ? blank + 2 : NULL;
+}
+
 int http_get_upload(const char *body, size_t body_len,
                     const char *field_name,
                     const char **file_data, size_t *file_len,
@@ -137,15 +159,18 @@ int http_get_upload(const char *body, size_t body_len,
     int n = snprintf(search, sizeof(search), "name=\"%s\"", field_name);
     if (n < 0 || (size_t)n >= sizeof(search)) return 0;
 
-    const char *field_start = strstr(body, search);
+    const char *field_start = find_bytes(body, body_len, search, (size_t)n);
     if (!field_start) return 0;
 
     /* Look for filename if provided */
-    const char *fn_start = strstr(body, "filename=\"");
-    if (fn_start && fn_start < field_start + 100) {
+    const char *fn_start = find_bytes(field_start, (size_t)(end - field_start),
+                                      "filename=\"", 10);
+    const char *headers_end = multipart_data_start(field_start, end);
+    if (fn_start && headers_end && fn_start < headers_end) {
         fn_start += 10; // skip 'filename="'
-        const char *fn_end = strchr(fn_start, '"');
-        if (fn_end && fn_end - fn_start < (int)filename_len) {
+        const char *fn_end = find_bytes(fn_start, (size_t)(headers_end - fn_start),
+                                        "\"", 1);
+        if (fn_end && (size_t)(fn_end - fn_start) < filename_len) {
             size_t fn_len = (size_t)(fn_end - fn_start);
             memcpy(filename, fn_start, fn_len);
             filename[fn_len] = '\0';
@@ -153,19 +178,11 @@ int http_get_upload(const char *body, size_t body_len,
     }
 
     /* Find blank line (\r\n\r\n) after the headers */
-    const char *blank = strstr(field_start, "\r\n\r\n");
-    if (!blank) blank = strstr(field_start, "\n\n");
+    const char *blank = headers_end;
     if (!blank) return 0;
 
-    if (*blank == '\r') blank += 4;
-    else blank += 2;
-
     /* Find boundary (next \r\n--...) */
-    const char *boundary = strstr(body, "\r\n--");
-    if (!boundary) {
-        /* Maybe it's the last boundary */
-        boundary = strstr(body, "--\r\n");
-    }
+    const char *boundary = find_bytes(blank, (size_t)(end - blank), "\r\n--", 4);
 
     const char *data_end = boundary ? boundary : end;
     if (data_end > blank) {
@@ -175,6 +192,37 @@ int http_get_upload(const char *body, size_t body_len,
     }
 
     return 0;
+}
+
+int http_get_multipart_field(const char *body, size_t body_len,
+                             const char *field_name,
+                             char *value, size_t value_len)
+{
+    char search[256];
+    int n;
+    const char *end = body + body_len;
+    const char *field;
+    const char *data;
+    const char *boundary;
+    size_t length;
+
+    if (!body || !field_name || !value || value_len == 0) return 0;
+    value[0] = '\0';
+    n = snprintf(search, sizeof(search), "name=\"%s\"", field_name);
+    if (n < 0 || (size_t)n >= sizeof(search)) return 0;
+
+    field = find_bytes(body, body_len, search, (size_t)n);
+    if (!field) return 0;
+    data = multipart_data_start(field, end);
+    if (!data) return 0;
+    boundary = find_bytes(data, (size_t)(end - data), "\r\n--", 4);
+    if (!boundary) return 0;
+
+    length = (size_t)(boundary - data);
+    if (length >= value_len) length = value_len - 1;
+    memcpy(value, data, length);
+    value[length] = '\0';
+    return 1;
 }
 
 static int parse_http_request(int sock, http_request_t *req)

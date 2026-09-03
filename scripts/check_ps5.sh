@@ -18,20 +18,20 @@ fi
 printf 'PS5Torrent em %s\n\n' "$PS5_ADDRESS"
 
 STATUS="$(curl --silent --show-error --connect-timeout 2 --max-time 4 \
-    "http://$PS5_ADDRESS:8080/api/status" 2>/dev/null)"
+    "http://$PS5_ADDRESS:12389/api/status" 2>/dev/null)"
 if [ -n "$STATUS" ]; then
-    printf '✓ Serviço ativo na porta 8080\n'
+    printf '✓ Serviço ativo na porta 12389\n'
     if command -v python3 >/dev/null 2>&1; then
         printf '%s' "$STATUS" | python3 -m json.tool 2>/dev/null || \
             printf '%s\n' "$STATUS"
     else
         printf '%s\n' "$STATUS"
     fi
-    printf '\nPainel: http://%s:8080/\n' "$PS5_ADDRESS"
+    printf '\nPainel: http://%s:12389/\n' "$PS5_ADDRESS"
     exit 0
 fi
 
-printf '✗ O serviço não respondeu na porta 8080\n'
+printf '✗ O serviço não respondeu na porta 12389\n'
 
 LOADER_FOUND=0
 for PORT in 9021 9020; do

@@ -1,6 +1,8 @@
 #include "storage_paths.h"
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
+#include <unistd.h>
 
 void storage_paths_get(storage_path_t *paths, size_t *count)
 {
@@ -113,4 +115,14 @@ int storage_path_exists(const char *path)
     if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
         return 1;
     return 0;
+}
+
+int storage_path_is_writable(const char *path)
+{
+    struct statvfs fs;
+
+    return storage_path_exists(path) &&
+           access(path, W_OK | X_OK) == 0 &&
+           statvfs(path, &fs) == 0 &&
+           !(fs.f_flag & ST_RDONLY);
 }

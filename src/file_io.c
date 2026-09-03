@@ -7,6 +7,33 @@
 #include <sys/stat.h>
 #include <errno.h>
 
+static int safe_relative_path(const char *path)
+{
+    if (!path || !path[0] || path[0] == '/') return 0;
+    for (const char *p = path; *p; p++) {
+        if ((unsigned char)*p < 0x20 ||
+            (*p == '.' && (p == path || p[-1] == '/') &&
+             (p[1] == '/' || p[1] == '\0' ||
+              (p[1] == '.' && (p[2] == '/' || p[2] == '\0')))))
+            return 0;
+    }
+    return 1;
+}
+
+static int create_parent_directories(char *full_path)
+{
+    for (char *p = full_path + 1; *p; p++) {
+        if (*p != '/') continue;
+        *p = '\0';
+        if (mkdir(full_path, 0755) < 0 && errno != EEXIST) {
+            *p = '/';
+            return -1;
+        }
+        *p = '/';
+    }
+    return 0;
+}
+
 int file_writer_init(file_writer_t *fw, torrent_t *torrent,
                      const char *base_path)
 {
@@ -24,13 +51,31 @@ int file_writer_init(file_writer_t *fw, torrent_t *torrent,
     if (!fw->multi_file) {
         /* Single file - open immediately */
         char full_path[1024];
+        const char *relative_path = torrent->file_name
+                                  ? torrent->file_name : torrent->name;
+        if (!safe_relative_path(relative_path)) {
+            free(fw->base_path);
+            fw->base_path = NULL;
+            errno = EINVAL;
+            return -1;
+        }
         int n = snprintf(full_path, sizeof(full_path), "%s/%s",
-                         base_path,
-                         torrent->file_name ? torrent->file_name : torrent->name);
-        if (n < 0 || (size_t)n >= sizeof(full_path)) return -1;
+                         base_path, relative_path);
+        if (n < 0 || (size_t)n >= sizeof(full_path)) {
+            free(fw->base_path);
+            fw->base_path = NULL;
+            errno = ENAMETOOLONG;
+            return -1;
+        }
 
         fw->fd = open(full_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (fw->fd < 0) return -1;
+        if (fw->fd < 0) {
+            int saved_errno = errno;
+            free(fw->base_path);
+            fw->base_path = NULL;
+            errno = saved_errno;
+            return -1;
+        }
     }
 
     return 0;
@@ -74,12 +119,18 @@ int file_writer_write_piece(file_writer_t *fw,
 
             if (write_len > 0) {
                 char full_path[1024];
+                if (!safe_relative_path(fw->torrent->files[i].path)) {
+                    errno = EINVAL;
+                    return -1;
+                }
                 int n = snprintf(full_path, sizeof(full_path), "%s/%s",
                                  fw->base_path,
                                  fw->torrent->files[i].path);
                 if (n < 0 || (size_t)n >= sizeof(full_path)) return -1;
 
-                /* Open file (append mode for simplicity) */
+                if (create_parent_directories(full_path) < 0) return -1;
+
+                /* Open the file and seek to this piece's exact offset. */
                 int fd = open(full_path, O_WRONLY | O_CREAT, 0644);
                 if (fd < 0) return -1;
 
@@ -122,4 +173,5 @@ void file_writer_destroy(file_writer_t *fw)
     file_writer_finish(fw);
     free(fw->base_path);
     memset(fw, 0, sizeof(file_writer_t));
+    fw->fd = -1;
 }

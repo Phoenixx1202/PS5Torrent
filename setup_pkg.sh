@@ -45,7 +45,10 @@ printf '%s\n' \
 
 make -C "$SCRIPT_DIR" clean all
 
-if command -v python3 >/dev/null 2>&1; then
+if { [ ! -f "$SCRIPT_DIR/pkg/sce_sys/icon0.png" ] ||
+     [ ! -f "$SCRIPT_DIR/pkg/sce_sys/pic0.png" ] ||
+     [ ! -f "$SCRIPT_DIR/pkg/sce_sys/pic1.png" ]; } &&
+   command -v python3 >/dev/null 2>&1; then
     if ! python3 "$SCRIPT_DIR/pkg/generate_icon.py"; then
         printf 'Aviso: ícones não foram gerados (instale Pillow se necessário).\n' >&2
     fi

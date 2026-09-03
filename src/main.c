@@ -2,7 +2,7 @@
  * PS5Torrent v2.0 - Web Interface + Multi-Torrent Engine
  *
  * BitTorrent Client for PlayStation 5 with embedded web UI.
- * Access the web interface at http://PS5_IP:8080/
+ * Access the web interface at http://PS5_IP:12389/
  *
  * Features:
  *   - Add torrents via magnet links or .torrent file upload
@@ -37,8 +37,11 @@
 #include "http_server.h"
 #include "torrent_mgr.h"
 #include "storage_paths.h"
+#include "ps5_jailbreak.h"
 #include "ps5_browser.h"
 #include "web_content.h"
+
+static int etahen_jailbreak_active = 0;
 
 static void json_escape_text(const char *input, char *output, size_t output_size)
 {
@@ -68,6 +71,63 @@ static void json_escape_text(const char *input, char *output, size_t output_size
         }
     }
     output[pos] = '\0';
+}
+
+static int build_save_path(const char *base_path,
+                           char *save_path, size_t save_path_size)
+{
+    size_t base_len;
+    int n;
+
+    if (!base_path || base_path[0] != '/' || !save_path ||
+        save_path_size == 0)
+        return -1;
+
+    /* Keep a custom destination absolute and canonical enough that it cannot
+     * escape into an unexpected directory through dot path components. */
+    for (const char *p = base_path; *p; p++) {
+        if ((unsigned char)*p < 0x20 ||
+            (*p == '.' && (p == base_path || p[-1] == '/') &&
+             (p[1] == '/' || p[1] == '\0' ||
+              (p[1] == '.' && (p[2] == '/' || p[2] == '\0')))))
+            return -1;
+    }
+
+    base_len = strlen(base_path);
+    while (base_len > 1 && base_path[base_len - 1] == '/')
+        base_len--;
+
+    n = snprintf(save_path, save_path_size, "%.*s%storrents/",
+                 (int)base_len, base_path, base_len == 1 ? "" : "/");
+    return n >= 0 && (size_t)n < save_path_size ? 0 : -1;
+}
+
+static http_response_t *torrent_start_error_response(int index,
+                                                     int remove_torrent)
+{
+    managed_torrent_t *mt = torrent_mgr_get(index);
+    const char *message = mt && mt->error_msg[0]
+                        ? mt->error_msg : "Não foi possível iniciar o torrent";
+    int status = mt && mt->error_type == TERR_WRITE_FAILED ? 403 : 400;
+    char detailed[512];
+    char escaped[512];
+    char json[640];
+
+    if (status == 403 && !etahen_jailbreak_active) {
+        snprintf(detailed, sizeof(detailed),
+                 "%s. No etaHEN, ative Network e Legacy CMD server e reabra o app",
+                 message);
+        message = detailed;
+    }
+
+    json_escape_text(message, escaped, sizeof(escaped));
+    int n = snprintf(json, sizeof(json),
+                     "{\"success\":false,\"error\":\"%s\"}", escaped);
+
+    if (remove_torrent)
+        torrent_mgr_remove(index);
+
+    return http_response_new(status, "application/json", json, (size_t)n);
 }
 
 /**
@@ -117,12 +177,12 @@ static http_response_t *handle_api_add(const http_request_t *req)
     if (!path[0])
         strncpy(path, storage_paths_get_default(), sizeof(path) - 1);
 
-    /* Normalize path - ensure it ends with / and has /torrents subdir */
     char save_path[512];
-    int n = snprintf(save_path, sizeof(save_path), "%storrents/", path);
-    if (n < 0 || (size_t)n >= sizeof(save_path)) {
-        return http_response_new(500, "application/json",
-                                 "{\"success\":false,\"error\":\"Path too long\"}", 44);
+    if (build_save_path(path, save_path, sizeof(save_path)) < 0) {
+        static const char body[] =
+            "{\"success\":false,\"error\":\"Caminho inválido\"}";
+        return http_response_new(400, "application/json",
+                                 body, sizeof(body) - 1);
     }
 
     int idx = torrent_mgr_add_magnet(magnet, save_path);
@@ -133,14 +193,15 @@ static http_response_t *handle_api_add(const http_request_t *req)
     }
 
     /* Start download automatically */
-    torrent_mgr_start(idx);
+    if (torrent_mgr_start(idx) < 0)
+        return torrent_start_error_response(idx, 1);
 
     managed_torrent_t *mt = torrent_mgr_get(idx);
     char resp_json[512];
     char escaped_name[384];
     json_escape_text(mt ? mt->name : "Unknown",
                      escaped_name, sizeof(escaped_name));
-    n = snprintf(resp_json, sizeof(resp_json),
+    int n = snprintf(resp_json, sizeof(resp_json),
         "{\"success\":true,\"id\":%d,\"name\":\"%s\"}",
         idx, escaped_name);
 
@@ -180,20 +241,8 @@ static http_response_t *handle_api_upload(const http_request_t *req)
             "{\"success\":false,\"error\":\"Use multipart upload instead\"}", 56);
     }
 
-    /* Get path from multipart */
-    /* Parse path from the multipart body - look for name="path" */
-    const char *path_field = strstr(req->body, "name=\"path\"");
-    if (path_field) {
-        const char *val = strstr(path_field, "\r\n\r\n");
-        if (val) {
-            val += 4;
-            const char *val_end = strstr(val, "\r\n");
-            size_t vl = val_end ? (size_t)(val_end - val) : strlen(val);
-            if (vl >= sizeof(path)) vl = sizeof(path) - 1;
-            memcpy(path, val, vl);
-            path[vl] = '\0';
-        }
-    }
+    http_get_multipart_field(req->body, req->body_len, "path",
+                             path, sizeof(path));
 
     if (!path[0])
         strncpy(path, storage_paths_get_default(), sizeof(path) - 1);
@@ -204,10 +253,11 @@ static http_response_t *handle_api_upload(const http_request_t *req)
     }
 
     char save_path[512];
-    int n = snprintf(save_path, sizeof(save_path), "%storrents/", path);
-    if (n < 0 || (size_t)n >= sizeof(save_path)) {
-        return http_response_new(500, "application/json",
-                                 "{\"success\":false,\"error\":\"Path too long\"}", 44);
+    if (build_save_path(path, save_path, sizeof(save_path)) < 0) {
+        static const char body[] =
+            "{\"success\":false,\"error\":\"Caminho inválido\"}";
+        return http_response_new(400, "application/json",
+                                 body, sizeof(body) - 1);
     }
 
     int idx = torrent_mgr_add_raw((const unsigned char *)file_data, file_len, save_path);
@@ -217,14 +267,15 @@ static http_response_t *handle_api_upload(const http_request_t *req)
     }
 
     /* Start download automatically */
-    torrent_mgr_start(idx);
+    if (torrent_mgr_start(idx) < 0)
+        return torrent_start_error_response(idx, 1);
 
     managed_torrent_t *mt = torrent_mgr_get(idx);
     char resp_json[512];
     char escaped_name[384];
     json_escape_text(mt ? mt->name : "Unknown",
                      escaped_name, sizeof(escaped_name));
-    n = snprintf(resp_json, sizeof(resp_json),
+    int n = snprintf(resp_json, sizeof(resp_json),
         "{\"success\":true,\"id\":%d,\"name\":\"%s\"}",
         idx, escaped_name);
 
@@ -282,8 +333,12 @@ static http_response_t *handle_api_action(const http_request_t *req)
                          "{\"success\":true,\"action\":\"%s\",\"id\":%d}", action, id);
         return http_response_new(200, "application/json", resp, (size_t)n);
     } else {
+        if (strcmp(action, "start") == 0 && id >= 0 && torrent_mgr_get(id))
+            return torrent_start_error_response(id, 0);
+        static const char body[] =
+            "{\"success\":false,\"error\":\"Ação inválida\"}";
         return http_response_new(400, "application/json",
-            "{\"success\":false,\"error\":\"Action failed\"}", 44);
+                                 body, sizeof(body) - 1);
     }
 }
 
@@ -305,11 +360,12 @@ static http_response_t *handle_api_paths(const http_request_t *req)
     for (size_t i = 0; i < count; i++) {
         if (i > 0) pos += snprintf(json + pos, 4096 - pos, ",");
         int exists = storage_path_exists(paths[i].path);
+        int writable = exists && storage_path_is_writable(paths[i].path);
         pos += snprintf(json + pos, 4096 - pos,
             "{\"path\":\"%s\",\"label\":\"%s\",\"icon\":\"%s\","
-            "\"exists\":%d,\"removable\":%d,\"default\":%d}",
+            "\"exists\":%d,\"writable\":%d,\"removable\":%d,\"default\":%d}",
             paths[i].path, paths[i].label, paths[i].icon,
-            exists, paths[i].is_removable, paths[i].is_default);
+            exists, writable, paths[i].is_removable, paths[i].is_default);
     }
 
     pos += snprintf(json + pos, 4096 - pos, "]}");
@@ -326,8 +382,9 @@ static http_response_t *handle_api_status(const http_request_t *req)
 {
     char resp[512];
     int n = snprintf(resp, sizeof(resp),
-        "{\"status\":\"running\",\"version\":\"2.0\","
+        "{\"status\":\"running\",\"version\":\"2.0\",\"jailbroken\":%s,"
         "\"torrents\":%d,\"capacity\":%d}",
+        etahen_jailbreak_active ? "true" : "false",
         torrent_mgr_count(), torrent_mgr_capacity());
     return http_response_new(200, "application/json", resp, (size_t)n);
 }
@@ -423,6 +480,16 @@ int main(void)
         return 1;
     }
 
+    /* fPKGs start sandboxed. etaHEN can grant filesystem access through its
+     * local command service; payloads sent to an ELF loader may already have
+     * the required privileges and continue normally when the service is off. */
+    if (ps5_request_jailbreak() == 0) {
+        etahen_jailbreak_active = 1;
+        ui_log("etaHEN jailbreak request accepted");
+    } else {
+        ui_log("etaHEN jailbreak service unavailable; checking current access");
+    }
+
     /* Initialize HTTP server */
     ui_log("Initializing web interface on port %d...", HTTP_PORT);
 
@@ -460,14 +527,16 @@ int main(void)
     char default_path[256] = {0};
     for (size_t i = 0; i < num_paths; i++) {
         int exists = storage_path_exists(paths[i].path);
+        int writable = exists && storage_path_is_writable(paths[i].path);
         ui_log("  %s %s %s %s",
                paths[i].icon,
                paths[i].label,
                paths[i].path,
-               exists ? "✅ Available" : "❌ Not mounted");
+               writable ? "✅ Writable" :
+               (exists ? "⚠️ Read-only" : "❌ Not mounted"));
 
-        /* Pick first available path */
-        if (exists && !default_path[0]) {
+        /* Pick first writable path */
+        if (writable && !default_path[0]) {
             strncpy(default_path, paths[i].path, sizeof(default_path) - 1);
         }
     }
@@ -492,7 +561,7 @@ int main(void)
               local_ip, HTTP_PORT);
 
     if (browser_ready &&
-        ps5_browser_open("http://127.0.0.1:8080/") == 0)
+        ps5_browser_open("http://127.0.0.1:12389/") == 0)
         ui_log("Opening the web interface on the PS5...");
     else {
         ui_error("Could not open the web interface automatically");

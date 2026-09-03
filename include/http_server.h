@@ -7,7 +7,7 @@
 /**
  * HTTP server port.
  */
-#define HTTP_PORT 8080
+#define HTTP_PORT 12389
 
 /**
  * Maximum request body size (for file uploads etc.).
@@ -54,7 +54,7 @@ typedef http_response_t* (*http_handler_t)(const http_request_t *request);
 
 /**
  * Initialize the HTTP server on the given port.
- * @param port  Port to listen on (e.g. 8080)
+ * @param port  Port to listen on (e.g. 12389)
  * @return 0 on success, -1 on error
  */
 int http_server_init(uint16_t port);
@@ -126,6 +126,11 @@ int http_get_upload(const char *body, size_t body_len,
                     const char *field_name,
                     const char **file_data, size_t *file_len,
                     char *filename, size_t filename_len);
+
+/** Copy a text field from a multipart body without treating binary data as C text. */
+int http_get_multipart_field(const char *body, size_t body_len,
+                             const char *field_name,
+                             char *value, size_t value_len);
 
 /**
  * Shutdown the HTTP server.

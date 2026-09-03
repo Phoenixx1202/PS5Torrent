@@ -18,6 +18,54 @@
 static managed_torrent_t torrents[MAX_TORRENTS];
 static int num_torrents = 0;
 
+static int ensure_directory_tree(const char *path)
+{
+    char current[512];
+    size_t len;
+
+    if (!path || path[0] != '/') {
+        errno = EINVAL;
+        return -1;
+    }
+
+    len = strlen(path);
+    if (len == 0 || len >= sizeof(current)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+
+    memcpy(current, path, len + 1);
+    while (len > 1 && current[len - 1] == '/')
+        current[--len] = '\0';
+
+    for (char *cursor = current + 1;; cursor++) {
+        if (*cursor != '/' && *cursor != '\0') continue;
+
+        char separator = *cursor;
+        struct stat st;
+        *cursor = '\0';
+
+        if (mkdir(current, 0755) < 0 && errno != EEXIST) {
+            *cursor = separator;
+            return -1;
+        }
+        if (stat(current, &st) < 0) {
+            *cursor = separator;
+            return -1;
+        }
+        if (!S_ISDIR(st.st_mode)) {
+            errno = ENOTDIR;
+            *cursor = separator;
+            return -1;
+        }
+
+        *cursor = separator;
+        if (separator == '\0') break;
+    }
+
+    return 0;
+}
+
 /**
  * Get current time in seconds (monotonic-ish).
  */
@@ -58,6 +106,7 @@ int torrent_mgr_add(torrent_t *torrent, const char *save_path,
     strncpy(mt->save_path, save_path, sizeof(mt->save_path) - 1);
     memcpy(mt->info_hash, torrent->info_hash, 20);
     mt->torrent = torrent;
+    mt->file_writer.fd = -1;
     mt->total_size = torrent->total_size;
     mt->is_magnet = is_magnet;
     if (magnet_uri)
@@ -190,19 +239,31 @@ int torrent_mgr_start(int index)
     if (index < 0 || index >= num_torrents) return -1;
     managed_torrent_t *mt = &torrents[index];
 
-    if (mt->state != TORRENT_STOPPED) return -1;
+    if (mt->state != TORRENT_STOPPED && mt->state != TORRENT_ERROR)
+        return -1;
     if (!mt->torrent) return -1;
 
+    if (mt->state == TORRENT_ERROR) {
+        piece_mgr_destroy(&mt->piece_mgr);
+        file_writer_destroy(&mt->file_writer);
+    }
+    mt->error_type = TERR_NONE;
+    mt->error_msg[0] = '\0';
+
     /* Create save directory */
-    struct stat st;
-    if (stat(mt->save_path, &st) != 0) {
-        if (mkdir(mt->save_path, 0755) < 0) {
-            mt->state = TORRENT_ERROR;
-            mt->error_type = TERR_WRITE_FAILED;
+    if (ensure_directory_tree(mt->save_path) < 0) {
+        int saved_errno = errno;
+        mt->state = TORRENT_ERROR;
+        mt->error_type = TERR_WRITE_FAILED;
+        if (saved_errno == EACCES || saved_errno == EPERM) {
             snprintf(mt->error_msg, sizeof(mt->error_msg),
-                     "Cannot create dir: %s", strerror(errno));
-            return -1;
+                     "Sem permissão para criar %s", mt->save_path);
+        } else {
+            snprintf(mt->error_msg, sizeof(mt->error_msg),
+                     "Não foi possível criar %s: %s",
+                     mt->save_path, strerror(saved_errno));
         }
+        return -1;
     }
 
     /* For magnet links without metadata, we need to do metadata download first */
@@ -226,10 +287,12 @@ int torrent_mgr_start(int index)
 
     /* Initialize file writer */
     if (file_writer_init(&mt->file_writer, mt->torrent, mt->save_path) < 0) {
+        int saved_errno = errno;
         mt->state = TORRENT_ERROR;
         mt->error_type = TERR_WRITE_FAILED;
         snprintf(mt->error_msg, sizeof(mt->error_msg),
-                 "File writer init failed");
+                 "Não foi possível criar o arquivo em %s: %s",
+                 mt->save_path, strerror(saved_errno));
         return -1;
     }
 

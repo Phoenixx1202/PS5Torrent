@@ -7,7 +7,7 @@
   "contentBadgeType": 2,
   "contentId": "IV9999-PPSA00001_00-PS5TORRENT000001",
   "contentVersion": "01.000.000",
-  "deeplinkUri": "http://127.0.0.1:8080/",
+  "deeplinkUri": "http://127.0.0.1:12389/",
   "downloadDataSize": 0,
   "localizedParameters": {
     "defaultLanguage": "pt-BR",

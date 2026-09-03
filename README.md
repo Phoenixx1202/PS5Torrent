@@ -54,7 +54,7 @@ homebrew utilizado no console.
 - trackers HTTP, protocolo BitTorrent peer wire e verificação SHA-1 das peças;
 - seleção de armazenamento USB, M.2/NVMe ou interno disponível;
 - notificação do sistema com o endereço do painel;
-- abertura automática de `http://127.0.0.1:8080/` no PS5;
+- abertura automática de `http://127.0.0.1:12389/` no PS5;
 - fPKG com ícone e arte próprios para a tela principal;
 - diagnóstico do console diretamente pelo macOS;
 - build reproduzível com o ps5-payload-sdk v0.41.
@@ -69,7 +69,7 @@ homebrew utilizado no console.
 
 Instale o `.pkg` usando o instalador do seu ambiente homebrew. Ao abrir o
 ícone **PS5Torrent** na tela principal, o aplicativo inicia o serviço na porta
-8080, exibe uma notificação e abre o painel local no navegador.
+12389, exibe uma notificação e abre o painel local no navegador.
 
 ### Payload ELF
 
@@ -81,11 +81,17 @@ export PS5_PORT=9021
 make test
 ```
 
+O ELF pronto fica na raiz do projeto como `ps5_torrent.elf`. No aplicativo do
+loader, escolha esse arquivo; não é necessário copiar outros arquivos do
+repositório. Quando ele iniciar, o painel abre automaticamente no PS5. Se o
+navegador não abrir, acesse `http://IP_DO_PS5:12389/` em qualquer aparelho da
+mesma rede.
+
 Também é possível selecionar `ps5_torrent.elf` em um aplicativo de envio de
 payloads. Depois do carregamento, acesse:
 
 ```text
-http://IP_DO_PS5:8080/
+http://IP_DO_PS5:12389/
 ```
 
 Para confirmar pelo Mac o que está respondendo:
@@ -94,7 +100,7 @@ Para confirmar pelo Mac o que está respondendo:
 ./scripts/check_ps5.sh 192.168.1.100
 ```
 
-O diagnóstico testa o painel na porta 8080 e os loaders nas portas 9021 e
+O diagnóstico testa o painel na porta 12389 e os loaders nas portas 9021 e
 9020. Quando o serviço está ativo, o estado da API é mostrado no terminal.
 
 ## Compilação
@@ -138,6 +144,12 @@ O pacote é gerado em `dist/` usando a
 [LibProsperoPKG](https://github.com/SvenGDK/LibProsperoPKG) v2.5 com uma camada
 SHA3-256 portátil para macOS. A revisão da dependência é fixada e validada pelo
 script. Consulte [pkg/TILE.md](pkg/TILE.md) para mais detalhes.
+
+Para que o fPKG possa gravar no USB e em outros pontos fora do sandbox, ative
+as opções **Network** e **Legacy CMD server** no toolbox do etaHEN antes de
+abrir o PS5Torrent. O aplicativo solicita a liberação automaticamente ao
+iniciar. O ELF enviado diretamente ao loader continua funcionando sem esse
+serviço quando já tiver acesso ao sistema de arquivos.
 
 ## Limitações da versão 1.0
 

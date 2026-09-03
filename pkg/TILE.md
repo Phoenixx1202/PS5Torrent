@@ -2,7 +2,7 @@
 
 O pacote inclui o próprio `ps5_torrent.elf` como `eboot.bin`. Ao abrir o ícone
 na tela inicial, ele inicia o serviço de torrent, mostra uma notificação com o
-endereço de rede e abre `http://127.0.0.1:8080/` no navegador do console. Não é
+endereço de rede e abre `http://127.0.0.1:12389/` no navegador do console. Não é
 necessário enviar o payload novamente a cada uso.
 
 Arquivos prontos neste diretório:
@@ -24,7 +24,7 @@ Na raiz do projeto, execute:
 ./scripts/build_pkg_macos.sh
 ```
 
-O script recompila o ELF, atualiza as artes e usa a
+O script recompila o ELF, preserva as artes do projeto e usa a
 [LibProsperoPKG](https://github.com/SvenGDK/LibProsperoPKG) v2.5 para gerar o
 arquivo em `dist/`. A dependência fica isolada em `.deps/` e sua revisão é
 validada antes do build.
@@ -34,5 +34,5 @@ console. O pacote é experimental e requer um PS5 em modo compatível com fPKG;
 a aceitação e a inicialização ainda precisam ser confirmadas no aparelho.
 
 O Content ID é exclusivo do projeto e o aplicativo abre somente o endereço
-local do próprio console. Para atualizar a arte, edite `generate_icon.py` e
-gere o pacote novamente.
+local do próprio console. O gerador em `generate_icon.py` fica disponível
+apenas como fallback caso algum asset esteja ausente.

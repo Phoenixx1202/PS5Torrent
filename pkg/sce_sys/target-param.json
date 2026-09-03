@@ -10,7 +10,7 @@
   "applicationDrmType": "free",
   "conceptId": "00000000000000000000000000000000",
   "contentBadgeType": 1,
-  "deeplinkUri": "http://127.0.0.1:8080/",
+  "deeplinkUri": "http://127.0.0.1:12389/",
   "ageLevel": {
     "default": 0,
     "US": 0

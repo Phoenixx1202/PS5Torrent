@@ -39,4 +39,11 @@ const char *storage_paths_get_default(void);
  */
 int storage_path_exists(const char *path);
 
+/**
+ * Check whether an existing storage directory can be written by this process.
+ * @param path Directory to check
+ * @return 1 if writable and searchable, 0 otherwise
+ */
+int storage_path_is_writable(const char *path);
+
 #endif /* PS5TORRENT_STORAGE_PATHS_H */

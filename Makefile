@@ -42,6 +42,7 @@ SRCS = src/main.c \
        src/http_server.c \
        src/torrent_mgr.c \
        src/storage_paths.c \
+       src/ps5_jailbreak.c \
        src/ps5_browser.c
 
 # Object files

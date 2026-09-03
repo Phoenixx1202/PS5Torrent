@@ -59,7 +59,14 @@ elif ! git -C "$LIB_DIR" apply --reverse --check "$MAC_SHA3_PATCH" 2>/dev/null; 
 fi
 
 make -C "$PROJECT_DIR" all
-python3 "$PROJECT_DIR/pkg/generate_icon.py"
+
+# Preserve the curated artwork committed with the project. The legacy Pillow
+# generator is only a fallback for incomplete source archives.
+if [ ! -f "$PROJECT_DIR/pkg/sce_sys/icon0.png" ] ||
+   [ ! -f "$PROJECT_DIR/pkg/sce_sys/pic0.png" ] ||
+   [ ! -f "$PROJECT_DIR/pkg/sce_sys/pic1.png" ]; then
+    python3 "$PROJECT_DIR/pkg/generate_icon.py"
+fi
 
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/sce_sys" "$OUTPUT_DIR" "$DOTNET_CLI_HOME" "$NUGET_PACKAGES"
