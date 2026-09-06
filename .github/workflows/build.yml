@@ -76,6 +76,7 @@ jobs:
         run: |
           make clean
           USE_LIBTORRENT=1 \
+            LIBTORRENT_WITH_OPENSSL=0 \
             LIBTORRENT_DEPS_DIR=/tmp/ps5torrent-libtorrent \
             LIBTORRENT_BUILD_DIR=/tmp/ps5torrent-libtorrent-build \
             make --jobs=2

@@ -39,6 +39,13 @@ BOOST_DIR ?= $(LIBTORRENT_DEPS_DIR)/$(PS5TORRENT_BOOST_VERSION)
 LIBTORRENT_BUILD_DIR ?= $(CURDIR)/.build/libtorrent-ps5
 LIBTORRENT_LAB_ELF = $(LIBTORRENT_BUILD_DIR)/ps5torrent-libtorrent-lab.elf
 LIBTORRENT_STATIC_LIB = $(LIBTORRENT_BUILD_DIR)/libtorrent-build/libtorrent-rasterbar.a
+LIBTORRENT_WITH_OPENSSL ?= auto
+ifeq ($(LIBTORRENT_WITH_OPENSSL),auto)
+LIBTORRENT_OPENSSL_HEADER := $(firstword \
+  $(wildcard $(PS5_PAYLOAD_SDK)/target/include/openssl/opensslv.h) \
+  $(wildcard $(PS5_PAYLOAD_SDK)/include/openssl/opensslv.h))
+LIBTORRENT_WITH_OPENSSL := $(if $(LIBTORRENT_OPENSSL_HEADER),1,0)
+endif
 
 # Source files
 BASE_SRCS = src/main.c \
@@ -89,22 +96,34 @@ CXXFLAGS = $(CFLAGS) \
            -Wno-deprecated-declarations \
            -DBOOST_ASIO_ENABLE_CANCELIO \
            -DBOOST_ASIO_NO_DEPRECATED \
-           -DOPENSSL_NO_DTLS1 \
-           -DOPENSSL_NO_SSL2 \
-           -DOPENSSL_NO_SSL3 \
-           -DOPENSSL_NO_TLS1 \
-           -DOPENSSL_NO_TLS1_1 \
            -DTORRENT_DISABLE_MUTABLE_TORRENTS \
            -DTORRENT_DISABLE_STREAMING \
            -DTORRENT_NO_DEPRECATE \
-           -DTORRENT_SSL_PEERS \
-           -DTORRENT_USE_I2P=0 \
-           -DTORRENT_USE_LIBCRYPTO \
-           -DTORRENT_USE_OPENSSL
+           -DTORRENT_USE_I2P=0
+
+ifeq ($(LIBTORRENT_WITH_OPENSSL),1)
+CXXFLAGS += -DOPENSSL_NO_DTLS1 \
+            -DOPENSSL_NO_SSL2 \
+            -DOPENSSL_NO_SSL3 \
+            -DOPENSSL_NO_TLS1 \
+            -DOPENSSL_NO_TLS1_1 \
+            -DTORRENT_SSL_PEERS \
+            -DTORRENT_USE_LIBCRYPTO \
+            -DTORRENT_USE_OPENSSL
+endif
 
 # Linker flags
 LDLIBS = -lufs -lSceSystemService -lSceAppInstUtil
-LIBTORRENT_LDLIBS = $(LIBTORRENT_STATIC_LIB) -lssl -lcrypto -pthread
+LIBTORRENT_LDLIBS = $(LIBTORRENT_STATIC_LIB) -pthread
+ifeq ($(LIBTORRENT_WITH_OPENSSL),1)
+LIBTORRENT_LDLIBS += -lssl -lcrypto
+endif
+LIBTORRENT_CMAKE_FLAGS =
+ifeq ($(LIBTORRENT_WITH_OPENSSL),0)
+LIBTORRENT_CMAKE_FLAGS += -DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE \
+                          -DCMAKE_DISABLE_FIND_PACKAGE_GnuTLS=TRUE \
+                          -DCMAKE_DISABLE_FIND_PACKAGE_LibGcrypt=TRUE
+endif
 
 all: $(TARGET).elf
 
@@ -118,7 +137,8 @@ libtorrent-lab-configure: libtorrent-deps
 	  -DCMAKE_TOOLCHAIN_FILE=$(PS5_PAYLOAD_SDK)/toolchain/prospero.cmake \
 	  -DLIBTORRENT_SOURCE_DIR=$(LIBTORRENT_DIR) \
 	  -DBOOST_ROOT=$(BOOST_DIR) \
-	  -DCMAKE_BUILD_TYPE=Release
+	  -DCMAKE_BUILD_TYPE=Release \
+	  $(LIBTORRENT_CMAKE_FLAGS)
 
 libtorrent-engine: libtorrent-lab-configure
 	cmake --build $(LIBTORRENT_BUILD_DIR) --target torrent-rasterbar -j4
