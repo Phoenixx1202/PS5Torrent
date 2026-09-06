@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 static int append_url_path(char *out, size_t out_size, const char *base, const char *path)
@@ -77,6 +78,8 @@ static int http_fetch_range(const char *url, uint64_t start, size_t length, unsi
         app_log_write("WARN", "Web seed TCP connection failed");
         return -1;
     }
+    int recv_buffer = 256 * 1024;
+    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &recv_buffer, sizeof(recv_buffer));
     if (net_set_timeout(sock, 30) < 0) {
         net_close(sock);
         return -1;
@@ -151,6 +154,21 @@ static int fetch_single_file_piece(const torrent_t *torrent, const char *seed,
     return http_fetch_range(url, offset, length, buffer);
 }
 
+static int fetch_single_file_span(const torrent_t *torrent, const char *seed,
+                                  size_t first_piece, unsigned char *buffer,
+                                  size_t length)
+{
+    char url[2048];
+    const char *file_name = torrent->file_name ? torrent->file_name : torrent->name;
+    if (seed[strlen(seed) - 1] == '/') {
+        if (append_url_path(url, sizeof(url), seed, file_name) < 0) return -1;
+    } else {
+        snprintf(url, sizeof(url), "%s", seed);
+    }
+    uint64_t offset = (uint64_t)first_piece * (uint64_t)torrent->piece_length;
+    return http_fetch_range(url, offset, length, buffer);
+}
+
 static int fetch_multi_file_piece(const torrent_t *torrent, const char *seed,
                                   size_t piece_index, unsigned char *buffer,
                                   size_t length)
@@ -186,7 +204,7 @@ int web_seed_fetch_piece(const torrent_t *torrent, size_t piece_index,
     if (!torrent || !buffer || !length || !torrent->web_seed_count) return -1;
     for (size_t i = 0; i < torrent->web_seed_count; i++) {
         const char *seed = torrent->web_seeds[i];
-        if (!seed || strncmp(seed, "http://", 7)) continue;
+        if (!seed || !seed[0] || strncmp(seed, "http://", 7)) continue;
         char msg[192];
         snprintf(msg, sizeof(msg), "Web seed request: index=%zu, bytes=%zu", piece_index, length);
         app_log_write("INFO", msg);
@@ -198,6 +216,53 @@ int web_seed_fetch_piece(const torrent_t *torrent, size_t piece_index,
             return 0;
         }
         app_log_write("WARN", "Web seed request failed; trying next source");
+    }
+    return -1;
+}
+
+int web_seed_fetch_pieces(const torrent_t *torrent, size_t first_piece,
+                          size_t piece_count, const size_t *piece_sizes,
+                          unsigned char *buffer)
+{
+    if (!torrent || !buffer || !piece_sizes || !piece_count || !torrent->web_seed_count)
+        return -1;
+
+    size_t total = 0;
+    for (size_t i = 0; i < piece_count; i++) {
+        if (!piece_sizes[i]) return -1;
+        total += piece_sizes[i];
+    }
+
+    for (size_t i = 0; i < torrent->web_seed_count; i++) {
+        const char *seed = torrent->web_seeds[i];
+        if (!seed || !seed[0] || strncmp(seed, "http://", 7)) continue;
+        char msg[224];
+        snprintf(msg, sizeof(msg),
+                 "Web seed batch request: first=%zu, pieces=%zu, bytes=%zu",
+                 first_piece, piece_count, total);
+        app_log_write("INFO", msg);
+
+        int ok = -1;
+        if (!torrent->is_multi_file) {
+            ok = fetch_single_file_span(torrent, seed, first_piece, buffer, total);
+        } else {
+            size_t offset = 0;
+            ok = 0;
+            for (size_t piece = 0; piece < piece_count; piece++) {
+                if (fetch_multi_file_piece(torrent, seed, first_piece + piece,
+                                           buffer + offset, piece_sizes[piece]) < 0) {
+                    ok = -1;
+                    break;
+                }
+                offset += piece_sizes[piece];
+            }
+        }
+
+        if (ok == 0) {
+            app_log_write("INFO", "Web seed delivered a complete batch");
+            return 0;
+        }
+        app_log_write("WARN", "Web seed batch request failed; trying next source");
     }
     return -1;
 }

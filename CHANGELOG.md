@@ -4,6 +4,10 @@ Todas as mudanças relevantes do PS5Torrent serão registradas neste arquivo.
 
 ## [2.0.4] - 2026-09-06
 
+- conexões com até quatro peers em paralelo por torrent, liberadas individualmente sem esperar pelos demais peers ou trackers;
+- cache de endereços sem duplicatas, intervalo progressivo entre tentativas de conexão e respeito ao intervalo de consulta dos trackers;
+- falhas de conexão identificam a etapa e o motivo correto; transferência ativa não recebe aviso genérico de falha dos peers;
+
 - mensagem de falha dos trackers não atribui problemas HTTP/UDP ao HTTPS; log identifica DNS, TCP, envio, timeout e status HTTP;
 
 - correção do download após conexão: estados choke/unchoke, bitfield/HAVE e blocos de até 16 KiB;
@@ -14,6 +18,7 @@ Todas as mudanças relevantes do PS5Torrent serão registradas neste arquivo.
 
 - suporte a trackers UDP IPv4 (BEP 15), com validação de transações e repetição após perda de pacote;
 - suporte a web seeds HTTP (`url-list`/BEP 19) como fallback quando trackers/peers não produzem conexão útil;
+- web seeds HTTP agora baixam lotes de peças contíguas por requisição `Range` e mantêm vários lotes em paralelo para reduzir conexões e melhorar velocidade;
 - diagnóstico por peer para falhas de TCP, handshake e envio de interested;
 - logs de protocolo, endpoint e quantidade de peers por tracker, sem expor caminhos/chaves privadas;
 

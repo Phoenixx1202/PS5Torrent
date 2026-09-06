@@ -41,6 +41,7 @@ for mode in ('good','multi','corrupt','disconnect','choke','choke_resume','webse
         torrent={b'announce':f'udp://127.0.0.1:{udp.getsockname()[1]}/announce'.encode(), b'info':info}
         if mode=='webseed':
             torrent={b'url-list':f'http://127.0.0.1:{tcp.getsockname()[1]}/data.bin'.encode(), b'info':info}
+        max_webseed_range=[0]
         source=root/'sample.torrent'; source.write_bytes(encode(torrent))
         def tracker():
             req,addr=udp.recvfrom(2048); tid=req[12:16]
@@ -81,8 +82,8 @@ for mode in ('good','multi','corrupt','disconnect','choke','choke_resume','webse
                     if index==2: message(conn,4,struct.pack('!I',0))
                 assert len(requested)==5 and requested[-1]==(0,16384,16384)
         def webseed():
-            served=0
-            while served<3:
+            served=[0]
+            while served[0] < len(data):
                 with tcp.accept()[0] as conn:
                     conn.settimeout(10)
                     request=b''
@@ -95,10 +96,12 @@ for mode in ('good','multi','corrupt','disconnect','choke','choke_resume','webse
                     end=request.index(b'\r\n',start)
                     first,last=map(int,request[start:end].split(b'-'))
                     body=data[first:last+1]
+                    max_webseed_range[0]=max(max_webseed_range[0],len(body))
+                    served[0]+=len(body)
+                    time.sleep(0.1)
                     header=(b'HTTP/1.0 206 Partial Content\r\nContent-Length: '+
                             str(len(body)).encode()+b'\r\n\r\n')
                     conn.sendall(header+body)
-                    served+=1
         with ThreadPoolExecutor(max_workers=2) as pool:
             tasks=[pool.submit(webseed)] if mode=='webseed' else [pool.submit(tracker),pool.submit(peer)]
             subprocess.run([sys.argv[1],str(source),temp,'good' if mode=='multi' else mode],check=True,timeout=15)
@@ -107,4 +110,7 @@ for mode in ('good','multi','corrupt','disconnect','choke','choke_resume','webse
         if mode=='multi':
             assert (root/'first.bin').read_bytes()==data[:30333]
             assert (root/'sub'/'second.bin').read_bytes()==data[30333:]
+        if mode=='webseed':
+            assert (root/'data.bin').read_bytes()==data
+            assert max_webseed_range[0] > piece_size
         print(f'Download {mode}: passed',flush=True)

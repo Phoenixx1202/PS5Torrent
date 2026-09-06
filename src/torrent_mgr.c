@@ -27,7 +27,13 @@ static uint64_t next_generation = 1;
 static size_t assembly_bytes;
 #define ASSEMBLY_LIMIT (64u * 1024u * 1024u)
 #define CHOKED_PEER_TIMEOUT 45u
-#define STALLED_SWARM_REANNOUNCE 30u
+#define PEER_CONNECT_PARALLEL 4
+#define PEER_CONNECT_MAX_JOBS (MAX_TORRENTS * PEER_CONNECT_PARALLEL)
+#define WEB_SEED_PARALLEL_PER_TORRENT 4
+#define WEB_SEED_BATCH_PIECES 4
+#define WEB_SEED_MAX_JOBS (MAX_TORRENTS * WEB_SEED_PARALLEL_PER_TORRENT)
+
+static void record_peer_failure(managed_torrent_t *mt, peer_addr_t addr);
 
 static void release_piece(managed_torrent_t *mt, torrent_peer_t *p)
 {
@@ -44,7 +50,10 @@ static void release_piece(managed_torrent_t *mt, torrent_peer_t *p)
 
 static void disconnect_peer(managed_torrent_t *mt, torrent_peer_t *p, const char *reason)
 {
-    if (p->sock >= 0) { net_close(p->sock); p->sock = -1; mt->active_peers--; }
+    if (p->sock >= 0) {
+        if (mt->state == TORRENT_DOWNLOADING) record_peer_failure(mt, p->addr);
+        net_close(p->sock); p->sock = -1; mt->active_peers--;
+    }
     release_piece(mt, p);
     free(p->bitfield); p->bitfield = NULL; p->bitfield_len = 0;
     app_log_write("INFO", reason);
@@ -439,6 +448,8 @@ void torrent_mgr_stop(int index)
     }
     mt->num_peers = 0;
     mt->active_peers = 0;
+    mt->num_candidates = mt->next_candidate = 0;
+    mt->tracker_failures = 0;
     mt->speed_down = 0;
     mt->speed_up = 0;
 
@@ -507,7 +518,9 @@ const char *torrent_mgr_error_str(torrent_error_t err)
 /**
  * Announce to tracker for a specific torrent.
  */
-static int announce_to_tracker(managed_torrent_t *mt)
+typedef void (*candidate_sink_t)(void *, const peer_addr_t *, int);
+
+static int announce_to_tracker(managed_torrent_t *mt, candidate_sink_t publish, void *context)
 {
     if (!mt->torrent->announce && mt->torrent->announce_list_count == 0)
         return -1;
@@ -568,80 +581,14 @@ static int announce_to_tracker(managed_torrent_t *mt)
                  tr->num_peers, tr->complete, tr->incomplete, tr->interval);
         app_log_write("INFO", tracker_log);
 
-        /* Connect to new peers. */
-        if (tr->num_peers > 0 && tr->peers) {
-          for (int i = 0; i < tr->num_peers; i++) {
-            /* Reuse a disconnected slot for the same peer, and avoid opening
-             * a duplicate socket when it is already active. */
-            int peer_slot = -1;
-            int already = 0;
-            for (int j = 0; j < mt->num_peers; j++) {
-                if (mt->peers[j].addr.ip == tr->peers[i].ip &&
-                    mt->peers[j].addr.port == tr->peers[i].port) {
-                    if (mt->peers[j].sock >= 0)
-                        already = 1;
-                    else
-                        peer_slot = j;
-                    break;
-                }
-            }
-            if (already) continue;
-            if (peer_slot < 0 && mt->num_peers >= MAX_PEERS_PER_TORRENT)
-                continue;
-
-            char peer_text[64];
-            peer_addr_text(tr->peers[i], peer_text, sizeof(peer_text));
-            snprintf(tracker_log, sizeof(tracker_log), "Peer connection attempt: endpoint=%s", peer_text);
-            app_log_write("INFO", tracker_log);
-
-            /* Connect to peer */
-            int sock = net_tcp_connect(tr->peers[i].ip,
-                                       ntohs(tr->peers[i].port));
-            if (sock < 0) {
-                snprintf(tracker_log, sizeof(tracker_log),
-                         "Peer TCP connection failed: endpoint=%s, errno=%d", peer_text, errno);
-                app_log_write("WARN", tracker_log);
-                continue;
-            }
-
-            net_set_timeout(sock, 15);
-
-            uint8_t remote_id[20];
-            if (peer_handshake(sock, mt->torrent->info_hash,
-                               mt->peer_id, remote_id) < 0) {
-                snprintf(tracker_log, sizeof(tracker_log),
-                         "Peer handshake failed: endpoint=%s, errno=%d", peer_text, errno);
-                app_log_write("WARN", tracker_log);
-                net_close(sock);
-                continue;
-            }
-
-            /* Setup peer */
-            if (peer_slot < 0)
-                peer_slot = mt->num_peers++;
-            torrent_peer_t *p = &mt->peers[peer_slot];
-            memset(p, 0, sizeof(*p));
-            p->sock = sock;
-            p->addr = tr->peers[i];
-            memcpy(p->peer_id, remote_id, 20);
-            p->choked = 1;
-            p->am_interested = 0;
-            p->last_request = 0;
-
-            mt->active_peers++;
-
-            if (peer_send_interested(sock) < 0) {
-                snprintf(tracker_log, sizeof(tracker_log),
-                         "Peer interested message failed: endpoint=%s, errno=%d", peer_text, errno);
-                app_log_write("WARN", tracker_log);
-                net_close(sock); p->sock = -1; mt->active_peers--;
-            } else app_log_write("INFO", "Peer handshake completed; waiting for bitfield and unchoke");
-          }
-        }
+        /* Publish immediately: slow peers and later trackers must not delay
+         * use of addresses returned by this tracker. */
+        if (tr->peers && tr->num_peers > 0)
+            publish(context, tr->peers, tr->num_peers);
         tracker_response_free(tr);
     }
 
-    if (mt->active_peers > 0) {
+    if (peers_reported > 0) {
         mt->error_type = TERR_NONE;
         mt->error_msg[0] = '\0';
         return 0;
@@ -654,12 +601,9 @@ static int announce_to_tracker(managed_torrent_t *mt)
                  : https_skipped
                    ? "Este torrent só tem trackers HTTPS ou incompatíveis; HTTPS ainda não é suportado."
                    : "Este torrent não tem trackers HTTP/UDP compatíveis.");
-    } else if (peers_reported == 0) {
-        snprintf(mt->error_msg, sizeof(mt->error_msg),
-                 "Trackers responderam, mas não há peers disponíveis; nova tentativa automática");
     } else {
         snprintf(mt->error_msg, sizeof(mt->error_msg),
-                 "Peers encontrados, mas as conexões falharam; nova tentativa automática");
+                 "Trackers responderam, mas não há peers disponíveis; nova tentativa automática");
     }
     mt->error_type = TERR_NO_PEERS;
     return -1;
@@ -668,41 +612,119 @@ static int announce_to_tracker(managed_torrent_t *mt)
 /**
  * Process one peer for a torrent - try to recv messages and send requests.
  */
-/* Each worker owns copied metadata and new sockets. Only the main thread
- * touches live torrents; generation IDs prevent late results reviving removals. */
+/* Tracker workers publish addresses; connection workers own new sockets.
+ * Only the main thread touches live torrents. Generation IDs reject stale work. */
 typedef struct {
     managed_torrent_t result;
+    pthread_mutex_t queue_mutex;
+    peer_addr_t queue[MAX_TRACKER_PEERS];
+    int queued;
     atomic_int done;
 } discovery_job_t;
 static discovery_job_t *discovery_jobs[MAX_TORRENTS];
 
 typedef struct {
     uint64_t generation;
-    size_t piece_index;
-    size_t piece_size;
+    peer_addr_t addr;
+    unsigned char info_hash[20], peer_id[20], remote_id[20];
+    int sock;
+    int error;
+    const char *stage;
+    atomic_int done;
+} peer_connect_job_t;
+static peer_connect_job_t *peer_connect_jobs[PEER_CONNECT_MAX_JOBS];
+
+typedef struct {
+    uint64_t generation;
+    size_t first_piece;
+    size_t piece_count;
+    size_t piece_sizes[WEB_SEED_BATCH_PIECES];
+    size_t total_size;
     unsigned char *data;
     torrent_t *torrent;
     int ok;
     atomic_int done;
 } web_seed_job_t;
-static web_seed_job_t *web_seed_jobs[MAX_TORRENTS];
+static web_seed_job_t *web_seed_jobs[WEB_SEED_MAX_JOBS];
 
 static void free_discovery(discovery_job_t *job)
 {
-    for (int i = 0; i < job->result.num_peers; i++)
-        if (job->result.peers[i].sock >= 0) net_close(job->result.peers[i].sock);
+    pthread_mutex_destroy(&job->queue_mutex);
     torrent_free(job->result.torrent);
     free(job);
+}
+
+static int same_peer(peer_addr_t a, peer_addr_t b)
+{
+    return a.ip == b.ip && a.port == b.port;
+}
+
+static int peer_is_connected(const managed_torrent_t *mt, peer_addr_t addr)
+{
+    for (int i = 0; i < mt->num_peers; i++)
+        if (mt->peers[i].sock >= 0 && same_peer(mt->peers[i].addr, addr)) return 1;
+    return 0;
+}
+
+static peer_candidate_t *find_candidate(managed_torrent_t *mt, peer_addr_t addr)
+{
+    for (int i = 0; i < mt->num_candidates; i++)
+        if (same_peer(mt->peer_candidates[i].addr, addr)) return &mt->peer_candidates[i];
+    return NULL;
+}
+
+static unsigned retry_delay(unsigned failures)
+{
+    unsigned delay = 30u << (failures > 4 ? 4 : failures ? failures - 1 : 0);
+    return delay > 300 ? 300 : delay;
+}
+
+static void record_peer_failure(managed_torrent_t *mt, peer_addr_t addr)
+{
+    peer_candidate_t *candidate = find_candidate(mt, addr);
+    if (!candidate) return;
+    if (candidate->failures < 5) candidate->failures++;
+    candidate->retry_after = get_time_sec() + retry_delay(candidate->failures);
+}
+
+static void add_candidate(managed_torrent_t *mt, peer_addr_t addr)
+{
+    if (!addr.ip || addr.ip == UINT32_MAX || !addr.port || find_candidate(mt, addr)) return;
+    int slot = mt->num_candidates;
+    if (slot == MAX_TRACKER_PEERS) {
+        slot = -1;
+        for (int i = 0; i < mt->num_candidates; i++) {
+            peer_candidate_t *c = &mt->peer_candidates[i];
+            if (!c->connecting && c->failures && !peer_is_connected(mt, c->addr) &&
+                (slot < 0 || c->failures > mt->peer_candidates[slot].failures)) slot = i;
+        }
+        if (slot < 0) return;
+    } else mt->num_candidates++;
+    memset(&mt->peer_candidates[slot], 0, sizeof(mt->peer_candidates[slot]));
+    mt->peer_candidates[slot].addr = addr;
+}
+
+static void publish_candidates(void *context, const peer_addr_t *peers, int count)
+{
+    discovery_job_t *job = context;
+    pthread_mutex_lock(&job->queue_mutex);
+    for (int i = 0; i < count && job->queued < MAX_TRACKER_PEERS; i++) {
+        int duplicate = 0;
+        for (int j = 0; j < job->queued; j++)
+            if (same_peer(job->queue[j], peers[i])) { duplicate = 1; break; }
+        if (!duplicate) job->queue[job->queued++] = peers[i];
+    }
+    pthread_mutex_unlock(&job->queue_mutex);
 }
 
 static void *discover_peers(void *arg)
 {
     discovery_job_t *job = arg;
     app_log_write("INFO", "Tracker discovery started in background");
-    announce_to_tracker(&job->result);
+    announce_to_tracker(&job->result, publish_candidates, job);
     char summary[192];
-    snprintf(summary, sizeof(summary), "Tracker discovery finished: torrent=%s, peers=%d, error_code=%d",
-             job->result.id, job->result.active_peers, job->result.error_type);
+    snprintf(summary, sizeof(summary), "Tracker discovery finished: torrent=%s, error_code=%d",
+             job->result.id, job->result.error_type);
     app_log_write("INFO", summary);
     atomic_store(&job->done, 1);
     return NULL;
@@ -712,36 +734,35 @@ static void collect_discovery(void)
 {
     for (int j = 0; j < MAX_TORRENTS; j++) {
         discovery_job_t *job = discovery_jobs[j];
-        if (!job || !atomic_load(&job->done)) continue;
+        if (!job) continue;
+        int done = atomic_load(&job->done);
         managed_torrent_t *live = NULL;
         for (int i = 0; i < num_torrents; i++)
             if (torrents[i].generation == job->result.generation &&
                 torrents[i].state == TORRENT_DOWNLOADING) live = &torrents[i];
+        peer_addr_t pending[MAX_TRACKER_PEERS];
+        pthread_mutex_lock(&job->queue_mutex);
+        int count = job->queued;
+        memcpy(pending, job->queue, (size_t)count * sizeof(*pending));
+        job->queued = 0;
+        pthread_mutex_unlock(&job->queue_mutex);
+        if (live)
+            for (int i = 0; i < count; i++) add_candidate(live, pending[i]);
+        if (!done) continue;
         if (live) {
             live->tracker_announces = job->result.tracker_announces;
             live->tracker_interval = job->result.tracker_interval;
-            for (int i = 0; i < job->result.num_peers; i++) {
-                torrent_peer_t *peer = &job->result.peers[i];
-                int slot = -1, duplicate = 0;
-                for (int p = 0; p < live->num_peers; p++) {
-                    if (live->peers[p].sock < 0) slot = p;
-                    else if (live->peers[p].addr.ip == peer->addr.ip &&
-                             live->peers[p].addr.port == peer->addr.port) duplicate = 1;
-                }
-                if (duplicate) continue;
-                if (slot < 0 && live->num_peers < MAX_PEERS_PER_TORRENT) slot = live->num_peers++;
-                if (slot < 0) continue;
-                int flags = fcntl(peer->sock, F_GETFL, 0);
-                if (flags < 0 || fcntl(peer->sock, F_SETFL, flags | O_NONBLOCK) < 0) continue;
-                live->peers[slot] = *peer;
-                live->peers[slot].last_activity = get_time_sec();
-                peer->sock = -1;
-                live->active_peers++;
-            }
-            if (!live->active_peers) {
+            live->last_announce_time = get_time_sec();
+            if (job->result.error_type != TERR_NONE) {
+                if (live->tracker_failures < 5) live->tracker_failures++;
+                unsigned delay = retry_delay(live->tracker_failures);
+                if (live->tracker_interval < (int)delay) live->tracker_interval = (int)delay;
+            } else live->tracker_failures = 0;
+            if (!live->active_peers && !live->num_candidates &&
+                (live->error_type == TERR_NONE || live->error_type == TERR_NO_PEERS)) {
                 live->error_type = job->result.error_type;
                 snprintf(live->error_msg, sizeof(live->error_msg), "%s", job->result.error_msg);
-            } else { live->error_type = TERR_NONE; live->error_msg[0] = 0; }
+            }
         }
         discovery_jobs[j] = NULL;
         free_discovery(job);
@@ -750,6 +771,7 @@ static void collect_discovery(void)
 
 static void schedule_discovery(managed_torrent_t *mt)
 {
+    if (!mt->torrent->announce && !mt->torrent->announce_list_count) return;
     int slot = -1;
     for (int i = 0; i < MAX_TORRENTS; i++) {
         if (discovery_jobs[i] && discovery_jobs[i]->result.generation == mt->generation) return;
@@ -758,13 +780,14 @@ static void schedule_discovery(managed_torrent_t *mt)
     if (slot < 0) return;
     discovery_job_t *job = calloc(1, sizeof(*job));
     if (!job) return;
+    if (pthread_mutex_init(&job->queue_mutex, NULL)) { free(job); return; }
     atomic_init(&job->done, 0);
     job->result = *mt;
     /* Workers must never retain ownership of live peer buffers. */
     memset(job->result.peers, 0, sizeof(job->result.peers));
     job->result.num_peers = job->result.active_peers = 0;
     job->result.torrent = torrent_clone_for_worker(mt->torrent);
-    if (!job->result.torrent) { free(job); return; }
+    if (!job->result.torrent) { free_discovery(job); return; }
     pthread_t thread;
     pthread_attr_t attr;
     if (pthread_attr_init(&attr)) goto fail;
@@ -774,9 +797,156 @@ static void schedule_discovery(managed_torrent_t *mt)
     pthread_attr_destroy(&attr);
     if (rc) goto fail;
     discovery_jobs[slot] = job;
+    mt->last_announce_time = get_time_sec();
+    if (mt->tracker_interval <= 0) mt->tracker_interval = 30;
     return;
 fail:
     free_discovery(job);
+}
+
+static void *connect_candidate(void *arg)
+{
+    peer_connect_job_t *job = arg;
+    job->stage = "TCP connect";
+    job->sock = net_tcp_connect(job->addr.ip, ntohs(job->addr.port));
+    if (job->sock < 0) goto fail;
+    job->stage = "handshake timeout setup";
+    if (net_set_timeout(job->sock, 15) < 0) goto fail;
+    job->stage = "BitTorrent handshake";
+    if (peer_handshake(job->sock, job->info_hash, job->peer_id, job->remote_id) < 0) goto fail;
+    job->stage = "interested message";
+    if (peer_send_interested(job->sock) < 0) goto fail;
+    job->stage = "nonblocking setup";
+    int flags = fcntl(job->sock, F_GETFL, 0);
+    if (flags < 0 || fcntl(job->sock, F_SETFL, flags | O_NONBLOCK) < 0) goto fail;
+    atomic_store(&job->done, 1);
+    return NULL;
+fail:
+    job->error = errno;
+    if (job->sock >= 0) net_close(job->sock);
+    job->sock = -1;
+    atomic_store(&job->done, 1);
+    return NULL;
+}
+
+static void collect_peer_connections(void)
+{
+    for (int j = 0; j < PEER_CONNECT_MAX_JOBS; j++) {
+        peer_connect_job_t *job = peer_connect_jobs[j];
+        if (!job || !atomic_load(&job->done)) continue;
+        managed_torrent_t *live = NULL;
+        for (int i = 0; i < num_torrents; i++)
+            if (torrents[i].generation == job->generation &&
+                torrents[i].state == TORRENT_DOWNLOADING) live = &torrents[i];
+        if (live) {
+            peer_candidate_t *candidate = find_candidate(live, job->addr);
+            if (candidate) candidate->connecting = 0;
+            char endpoint[64], message[384];
+            peer_addr_text(job->addr, endpoint, sizeof(endpoint));
+            if (job->sock < 0) {
+                record_peer_failure(live, job->addr);
+                snprintf(message, sizeof(message),
+                         "Peer connection failed: endpoint=%s, stage=%s, errno=%d (%s), retry_in=%u seconds",
+                         endpoint, job->stage, job->error, strerror(job->error),
+                         retry_delay(candidate ? candidate->failures : 1));
+                app_log_write("WARN", message);
+            } else if (!peer_is_connected(live, job->addr)) {
+                int slot = -1;
+                for (int i = 0; i < live->num_peers; i++)
+                    if (live->peers[i].sock < 0) { slot = i; break; }
+                if (slot < 0 && live->num_peers < MAX_PEERS_PER_TORRENT) slot = live->num_peers++;
+                if (slot >= 0) {
+                    torrent_peer_t *peer = &live->peers[slot];
+                    memset(peer, 0, sizeof(*peer));
+                    peer->sock = job->sock;
+                    peer->addr = job->addr;
+                    memcpy(peer->peer_id, job->remote_id, 20);
+                    peer->choked = peer->am_interested = 1;
+                    peer->last_activity = get_time_sec();
+                    job->sock = -1;
+                    live->active_peers++;
+                    snprintf(message, sizeof(message),
+                             "Peer ready for transfer: endpoint=%s, active_peers=%d", endpoint, live->active_peers);
+                    app_log_write("INFO", message);
+                }
+            }
+        }
+        if (job->sock >= 0) net_close(job->sock);
+        peer_connect_jobs[j] = NULL;
+        free(job);
+    }
+}
+
+static void schedule_peer_connections(managed_torrent_t *mt)
+{
+    int pending = 0;
+    for (int j = 0; j < PEER_CONNECT_MAX_JOBS; j++)
+        if (peer_connect_jobs[j] && peer_connect_jobs[j]->generation == mt->generation) pending++;
+    uint64_t now = get_time_sec();
+    for (int checked = 0; checked < mt->num_candidates && pending < PEER_CONNECT_PARALLEL &&
+         mt->active_peers + pending < MAX_PEERS_PER_TORRENT; checked++) {
+        int index = mt->next_candidate++ % mt->num_candidates;
+        mt->next_candidate %= mt->num_candidates;
+        peer_candidate_t *candidate = &mt->peer_candidates[index];
+        if (candidate->connecting || now < candidate->retry_after ||
+            peer_is_connected(mt, candidate->addr)) continue;
+        int slot = -1;
+        for (int j = 0; j < PEER_CONNECT_MAX_JOBS; j++)
+            if (!peer_connect_jobs[j]) { slot = j; break; }
+        if (slot < 0) break;
+        peer_connect_job_t *job = calloc(1, sizeof(*job));
+        if (!job) break;
+        job->generation = mt->generation;
+        job->addr = candidate->addr;
+        job->sock = -1;
+        memcpy(job->info_hash, mt->info_hash, 20);
+        memcpy(job->peer_id, mt->peer_id, 20);
+        atomic_init(&job->done, 0);
+        pthread_t thread;
+        pthread_attr_t attr;
+        int rc = pthread_attr_init(&attr);
+        if (!rc) {
+            rc = pthread_attr_setstacksize(&attr, 256 * 1024);
+            if (!rc) rc = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+            if (!rc) rc = pthread_create(&thread, &attr, connect_candidate, job);
+            pthread_attr_destroy(&attr);
+        }
+        if (rc) {
+            free(job);
+            candidate->retry_after = now + 5;
+            app_log_write("WARN", "Peer connection worker unavailable; retrying later");
+            break;
+        }
+        peer_connect_jobs[slot] = job;
+        candidate->connecting = 1;
+        pending++;
+        char endpoint[64], message[128];
+        peer_addr_text(candidate->addr, endpoint, sizeof(endpoint));
+        snprintf(message, sizeof(message), "Peer connection attempt: endpoint=%s", endpoint);
+        app_log_write("INFO", message);
+    }
+}
+
+static void update_peer_status(managed_torrent_t *mt)
+{
+    if (mt->error_type != TERR_NONE && mt->error_type != TERR_NO_PEERS) return;
+    uint64_t now = get_time_sec();
+    int pending = 0;
+    uint64_t next_retry = UINT64_MAX;
+    for (int i = 0; i < mt->num_candidates; i++) {
+        peer_candidate_t *c = &mt->peer_candidates[i];
+        pending += c->connecting;
+        if (c->retry_after < next_retry) next_retry = c->retry_after;
+    }
+    if (mt->active_peers || pending || (mt->downloaded && now - mt->last_progress_time < 60)) {
+        mt->error_type = TERR_NONE;
+        mt->error_msg[0] = 0;
+    } else if (mt->num_candidates && next_retry > now) {
+        mt->error_type = TERR_NO_PEERS;
+        snprintf(mt->error_msg, sizeof(mt->error_msg),
+                 "Peers indisponíveis; nova tentativa em %llu s. Consulte o log para detalhes.",
+                 (unsigned long long)(next_retry - now));
+    }
 }
 
 static void free_web_seed_job(web_seed_job_t *job)
@@ -790,45 +960,84 @@ static void free_web_seed_job(web_seed_job_t *job)
 static void *fetch_web_seed_piece(void *arg)
 {
     web_seed_job_t *job = arg;
-    job->ok = web_seed_fetch_piece(job->torrent, job->piece_index,
-                                   job->data, job->piece_size) == 0;
+    job->ok = web_seed_fetch_pieces(job->torrent, job->first_piece,
+                                    job->piece_count, job->piece_sizes,
+                                    job->data) == 0;
     atomic_store(&job->done, 1);
     return NULL;
 }
 
+static size_t torrent_piece_size(const torrent_t *torrent, size_t index)
+{
+    if (!torrent || index >= torrent->num_pieces) return 0;
+    uint64_t size = (uint64_t)torrent->piece_length;
+    if (index == torrent->num_pieces - 1)
+        size = torrent->total_size - (uint64_t)index * size;
+    return (size_t)size;
+}
+
 static void collect_web_seed(void)
 {
-    for (int j = 0; j < MAX_TORRENTS; j++) {
+    for (int j = 0; j < WEB_SEED_MAX_JOBS; j++) {
         web_seed_job_t *job = web_seed_jobs[j];
         if (!job || !atomic_load(&job->done)) continue;
         managed_torrent_t *live = NULL;
         for (int i = 0; i < num_torrents; i++)
             if (torrents[i].generation == job->generation &&
                 torrents[i].state == TORRENT_DOWNLOADING) live = &torrents[i];
-        if (live && job->piece_index < live->piece_mgr.num_pieces) {
+        if (live && job->first_piece < live->piece_mgr.num_pieces) {
             if (job->ok) {
-                unsigned char hash[20];
-                sha1_hash(job->data, job->piece_size, hash);
-                if (memcmp(hash, live->torrent->pieces + job->piece_index * 20, 20) == 0 &&
-                    file_writer_write_piece(&live->file_writer, job->data,
-                                            job->piece_size, job->piece_index) == 0) {
-                    piece_mgr_complete(&live->piece_mgr, job->piece_index,
-                                       job->data, job->piece_size);
-                    live->downloaded += job->piece_size;
-                    live->last_progress_time = get_time_sec();
-                    char message[160];
+                size_t offset = 0;
+                size_t saved = 0;
+                int failed = 0;
+                for (size_t piece = 0; piece < job->piece_count; piece++) {
+                    size_t index = job->first_piece + piece;
+                    size_t size = job->piece_sizes[piece];
+                    if (index >= live->piece_mgr.num_pieces ||
+                        live->piece_mgr.pieces[index].state == PIECE_COMPLETE) {
+                        offset += size;
+                        continue;
+                    }
+                    unsigned char hash[20];
+                    sha1_hash(job->data + offset, size, hash);
+                    if (memcmp(hash, live->torrent->pieces + index * 20, 20) != 0 ||
+                        file_writer_write_piece(&live->file_writer, job->data + offset,
+                                                size, index) != 0 ||
+                        piece_mgr_complete(&live->piece_mgr, index,
+                                           job->data + offset, size) != 0) {
+                        live->piece_mgr.pieces[index].state = PIECE_FREE;
+                        failed = 1;
+                        break;
+                    }
+                    live->downloaded += size;
+                    saved++;
+                    offset += size;
+                }
+                if (saved) live->last_progress_time = get_time_sec();
+                if (failed) {
+                    for (size_t piece = saved; piece < job->piece_count; piece++) {
+                        size_t index = job->first_piece + piece;
+                        if (index < live->piece_mgr.num_pieces &&
+                            live->piece_mgr.pieces[index].state != PIECE_COMPLETE)
+                            live->piece_mgr.pieces[index].state = PIECE_FREE;
+                    }
+                    app_log_write("WARN", "Web seed batch failed validation or disk write");
+                } else {
+                    char message[192];
                     snprintf(message, sizeof(message),
-                             "Web seed piece verified and saved: index=%zu, bytes=%zu, completed=%zu/%zu",
-                             job->piece_index, job->piece_size,
+                             "Web seed batch verified and saved: first=%zu, pieces=%zu, bytes=%zu, completed=%zu/%zu",
+                             job->first_piece, saved, job->total_size,
                              live->piece_mgr.num_complete, live->torrent->num_pieces);
                     app_log_write("INFO", message);
-                } else {
-                    live->piece_mgr.pieces[job->piece_index].state = PIECE_FREE;
-                    app_log_write("WARN", "Web seed piece failed validation or disk write");
                 }
             } else {
-                live->piece_mgr.pieces[job->piece_index].state = PIECE_FREE;
-                app_log_write("WARN", "Web seed piece request failed");
+                for (size_t piece = 0; piece < job->piece_count; piece++) {
+                    size_t index = job->first_piece + piece;
+                    if (index < live->piece_mgr.num_pieces &&
+                        live->piece_mgr.pieces[index].state != PIECE_COMPLETE)
+                        live->piece_mgr.pieces[index].state = PIECE_FREE;
+                }
+                app_log_write("WARN", "Web seed batch request failed");
             }
         }
         web_seed_jobs[j] = NULL;
@@ -836,55 +1045,79 @@ static void collect_web_seed(void)
     }
 }
 
-static int web_seed_job_running(const managed_torrent_t *mt)
+static int web_seed_active_count(const managed_torrent_t *mt)
 {
-    for (int i = 0; i < MAX_TORRENTS; i++)
+    int count = 0;
+    for (int i = 0; i < WEB_SEED_MAX_JOBS; i++)
         if (web_seed_jobs[i] && web_seed_jobs[i]->generation == mt->generation)
-            return 1;
-    return 0;
+            count++;
+    return count;
 }
 
-static void schedule_web_seed(managed_torrent_t *mt)
+static int schedule_web_seed_one(managed_torrent_t *mt)
 {
-    if (!mt->torrent || !mt->torrent->web_seed_count || web_seed_job_running(mt))
-        return;
+    if (!mt->torrent || !mt->torrent->web_seed_count)
+        return 0;
+    if (web_seed_active_count(mt) >= WEB_SEED_PARALLEL_PER_TORRENT)
+        return 0;
     int slot = -1;
-    for (int i = 0; i < MAX_TORRENTS; i++)
+    for (int i = 0; i < WEB_SEED_MAX_JOBS; i++)
         if (!web_seed_jobs[i]) { slot = i; break; }
-    if (slot < 0) return;
+    if (slot < 0) return 0;
     int next = piece_mgr_get_next(&mt->piece_mgr, NULL, 0);
-    if (next < 0) return;
-    uint64_t size = (uint64_t)mt->torrent->piece_length;
-    if ((size_t)next == mt->torrent->num_pieces - 1)
-        size = mt->torrent->total_size - (uint64_t)next * size;
-    if (size == 0 || size > ASSEMBLY_LIMIT) return;
+    if (next < 0) return 0;
+    size_t first_piece = (size_t)next;
+    size_t piece_count = 0;
+    size_t piece_sizes[WEB_SEED_BATCH_PIECES] = {0};
+    size_t total_size = 0;
+    for (size_t i = 0; i < WEB_SEED_BATCH_PIECES; i++) {
+        size_t index = first_piece + i;
+        if (index >= mt->torrent->num_pieces) break;
+        if (mt->piece_mgr.pieces[index].state != PIECE_FREE) break;
+        size_t size = torrent_piece_size(mt->torrent, index);
+        if (!size || total_size + size > ASSEMBLY_LIMIT) break;
+        piece_sizes[piece_count++] = size;
+        total_size += size;
+    }
+    if (!piece_count || !total_size) return 0;
     web_seed_job_t *job = calloc(1, sizeof(*job));
-    if (!job) return;
-    job->data = malloc((size_t)size);
+    if (!job) return 0;
+    job->data = malloc(total_size);
     job->torrent = torrent_clone_for_worker(mt->torrent);
-    if (!job->data || !job->torrent) { free_web_seed_job(job); return; }
+    if (!job->data || !job->torrent) { free_web_seed_job(job); return 0; }
     job->generation = mt->generation;
-    job->piece_index = (size_t)next;
-    job->piece_size = (size_t)size;
+    job->first_piece = first_piece;
+    job->piece_count = piece_count;
+    job->total_size = total_size;
+    memcpy(job->piece_sizes, piece_sizes, sizeof(piece_sizes));
     atomic_init(&job->done, 0);
-    piece_mgr_request(&mt->piece_mgr, (size_t)next);
+    for (size_t i = 0; i < piece_count; i++)
+        piece_mgr_request(&mt->piece_mgr, first_piece + i);
     pthread_t thread;
     pthread_attr_t attr;
     if (pthread_attr_init(&attr)) {
-        mt->piece_mgr.pieces[next].state = PIECE_FREE;
+        for (size_t i = 0; i < piece_count; i++)
+            mt->piece_mgr.pieces[first_piece + i].state = PIECE_FREE;
         free_web_seed_job(job);
-        return;
+        return 0;
     }
     int rc = pthread_attr_setstacksize(&attr, 1024 * 1024);
     if (!rc) rc = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     if (!rc) rc = pthread_create(&thread, &attr, fetch_web_seed_piece, job);
     pthread_attr_destroy(&attr);
     if (rc) {
-        mt->piece_mgr.pieces[next].state = PIECE_FREE;
+        for (size_t i = 0; i < piece_count; i++)
+            mt->piece_mgr.pieces[first_piece + i].state = PIECE_FREE;
         free_web_seed_job(job);
-        return;
+        return 0;
     }
     web_seed_jobs[slot] = job;
+    return 1;
+}
+
+static void schedule_web_seed(managed_torrent_t *mt)
+{
+    while (schedule_web_seed_one(mt)) {}
 }
 
 static void process_peer(managed_torrent_t *mt, int peer_idx)
@@ -895,7 +1128,7 @@ static void process_peer(managed_torrent_t *mt, int peer_idx)
     uint64_t now = get_time_sec();
     if (!p->last_activity) p->last_activity = now;
     if (p->choked && !p->pending_length && now - p->last_activity >= CHOKED_PEER_TIMEOUT) {
-        disconnect_peer(mt, p, "Peer stayed choked too long; reconnecting through tracker");
+        disconnect_peer(mt, p, "Peer stayed choked too long; retry scheduled with cooldown");
         return;
     }
     if ((p->pending_length && now - p->request_time >= 60) ||
@@ -956,6 +1189,8 @@ static void process_peer(managed_torrent_t *mt, int peer_idx)
                 }
                 piece_mgr_complete(&mt->piece_mgr, index, p->piece_data, p->piece_size);
                 mt->downloaded += p->piece_size; p->downloaded += p->piece_size;
+                peer_candidate_t *candidate = find_candidate(mt, p->addr);
+                if (candidate) { candidate->failures = 0; candidate->retry_after = 0; }
                 char message[160];
                 snprintf(message, sizeof(message), "Piece verified and saved: index=%u, bytes=%zu, completed=%zu/%zu",
                          index, p->piece_size, mt->piece_mgr.num_complete, mt->torrent->num_pieces);
@@ -995,6 +1230,7 @@ int torrent_mgr_tick(void)
 {
     collect_web_seed();
     collect_discovery();
+    collect_peer_connections();
     int active = 0;
     uint64_t now = get_time_sec();
 
@@ -1032,49 +1268,19 @@ int torrent_mgr_tick(void)
             }
         }
 
-        /* Re-announce to tracker periodically */
-        if (mt->tracker_interval > 0 &&
-            now - mt->last_announce_time >= (uint64_t)mt->tracker_interval) {
+        /* Peer retries use cached addresses. Tracker requests keep their own
+         * interval and are timed from completion, not a stalled worker's start. */
+        if (mt->last_announce_time == 0 || (mt->tracker_interval > 0 &&
+            now - mt->last_announce_time >= (uint64_t)mt->tracker_interval)) {
             schedule_discovery(mt);
-            mt->last_announce_time = now;
-        }
-
-        /* Initial announce */
-        if (mt->last_announce_time == 0) {
-            schedule_discovery(mt);
-            mt->last_announce_time = now;
-            schedule_web_seed(mt);
         }
 
         /* Run the send scheduler even when no new bytes arrived. */
         for (int p = 0; p < mt->num_peers; p++) process_peer(mt, p);
 
-        int useful_peers = 0;
-        for (int p = 0; p < mt->num_peers; p++) {
-            torrent_peer_t *peer = &mt->peers[p];
-            if (peer->sock >= 0 && (!peer->choked || peer->pending_length || peer->piece_data)) {
-                useful_peers++;
-            }
-        }
-
-        if (mt->active_peers > 0 && useful_peers == 0 &&
-            now - mt->last_progress_time >= STALLED_SWARM_REANNOUNCE &&
-            now - mt->last_announce_time >= STALLED_SWARM_REANNOUNCE) {
-            app_log_write("INFO", "All active peers are choked or idle; requesting fresh peers");
-            schedule_discovery(mt);
-            mt->last_announce_time = now;
-            schedule_web_seed(mt);
-        }
-
-        if (useful_peers == 0)
-            schedule_web_seed(mt);
-
-        /* If no active peers, try to re-announce */
-        if (mt->active_peers == 0 && now - mt->last_announce_time >= 30) {
-            schedule_discovery(mt);
-            mt->last_announce_time = now;
-            schedule_web_seed(mt);
-        }
+        schedule_peer_connections(mt);
+        schedule_web_seed(mt);
+        update_peer_status(mt);
     }
 
     return active;

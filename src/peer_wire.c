@@ -33,15 +33,27 @@ int peer_handshake(int sock,
     if (net_send_all(sock, &hs_out, sizeof(peer_handshake_t)) < 0)
         return -1;
 
-    /* Receive handshake */
+    /* Reject a different protocol as soon as its prefix arrives. Reading all
+     * 68 bytes first can spend the full timeout on a non-BitTorrent service. */
     peer_handshake_t hs_in;
-    if (net_recv_exact(sock, &hs_in, sizeof(peer_handshake_t)) < 0)
+    if (net_recv_exact(sock, &hs_in.pstrlen, 1) < 0)
+        return -1;
+    if (hs_in.pstrlen != 19) { errno = EPROTO; return -1; }
+    if (net_recv_exact(sock, hs_in.pstr, sizeof(hs_in.pstr)) < 0)
+        return -1;
+    if (memcmp(hs_in.pstr, "BitTorrent protocol", 19) != 0) {
+        errno = EPROTO;
+        return -1;
+    }
+    if (net_recv_exact(sock, (unsigned char *)&hs_in + 1 + sizeof(hs_in.pstr),
+                       sizeof(hs_in) - 1 - sizeof(hs_in.pstr)) < 0)
         return -1;
 
     /* Validate handshake */
-    if (hs_in.pstrlen != 19) return -1;
-    if (memcmp(hs_in.pstr, "BitTorrent protocol", 19) != 0) return -1;
-    if (memcmp(hs_in.info_hash, info_hash, 20) != 0) return -1;
+    if (memcmp(hs_in.info_hash, info_hash, 20) != 0) {
+        errno = EPROTO;
+        return -1;
+    }
 
     /* Output peer ID if requested */
     if (peer_id_out)

@@ -65,6 +65,13 @@ typedef struct {
     uint64_t last_activity;
 } torrent_peer_t;
 
+typedef struct {
+    peer_addr_t addr;
+    unsigned failures;
+    uint64_t retry_after;
+    int connecting;
+} peer_candidate_t;
+
 /**
  * A managed torrent download.
  */
@@ -87,6 +94,9 @@ typedef struct {
     torrent_peer_t   peers[MAX_PEERS_PER_TORRENT];
     int              num_peers;
     int              active_peers;
+    peer_candidate_t peer_candidates[MAX_TRACKER_PEERS];
+    int              num_candidates;
+    int              next_candidate;
 
     // Stats
     uint64_t  downloaded;
@@ -94,6 +104,7 @@ typedef struct {
     uint64_t  total_size;
     int       tracker_announces;
     int       tracker_interval;
+    unsigned  tracker_failures;
     float     progress;
     uint64_t  speed_down;     // bytes/sec
     uint64_t  speed_up;

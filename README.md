@@ -52,7 +52,8 @@ homebrew utilizado no console.
 - upload de arquivos `.torrent` pelo navegador;
 - metainfo single-file e multi-file;
 - trackers HTTP e UDP (IPv4/BEP 15), disponibilidade de peças (bitfield/HAVE), choke/unchoke e blocos de até 16 KiB;
-- fallback por web seed HTTP (`url-list`/BEP 19) quando o swarm não fornece peer útil;
+- conexões com peers em paralelo, com uso imediato de cada conexão pronta e novas tentativas com intervalo progressivo;
+- fallback por web seed HTTP (`url-list`/BEP 19), com lotes de peças contíguas por `Range` e múltiplos lotes em paralelo quando disponível;
 - montagem e verificação SHA-1 da peça completa antes de confirmar a gravação, incluindo peças que cruzam arquivos;
 - seleção de armazenamento USB, M.2/NVMe ou interno disponível;
 - notificação do sistema com o endereço do painel;
@@ -81,11 +82,17 @@ console. Pelo computador/celular, também há um botão separado para upload.
 O limite do arquivo de metadados é 1 MB, sem limitar o tamanho do download.
 
 O botão **Logs**, ao lado de **Novo torrent**, abre uma tela preta com texto
-branco e atualização a cada dois segundos. Os eventos são registrados em inglês,
-com data/hora UTC, em `/data/PS5Torrent/PS5Torrent.log`. Ao atingir 1 MB, o
+branco e atualização a cada dois segundos. Os eventos são registrados com
+data/hora UTC em `/data/PS5Torrent/PS5Torrent.log`. Ao atingir 1 MB, o
 arquivo anterior é mantido como `PS5Torrent.previous.log`. A tela mostra os
 últimos 64 KB. Se a gravação não estiver disponível, ela informa o problema e
 mostra os eventos em memória. Depois de uma queda, consulte o arquivo salvo.
+
+Peers sem resposta são tentados novamente após 30 segundos, com aumento gradual
+até cinco minutos em falhas consecutivas. Endereços repetidos são deduplicados.
+As consultas regulares aos trackers seguem o intervalo informado na resposta,
+conforme o [protocolo BitTorrent](https://www.bittorrent.org/beps/bep_0003.html).
+O log identifica o endereço, a etapa da conexão e o motivo da falha.
 
 Em **Salvar em**, selecione um atalho e clique em **Outro caminho** para
 navegar pelas pastas a partir dele. Confirme com **Usar esta pasta**.
@@ -168,7 +175,7 @@ pacote após alterar as imagens ou metadados, use `python scripts/build_media_pk
 com `prospero-pub-cmd` disponível. Consulte [pkg/TILE.md](pkg/TILE.md).
 
 O ELF prepara as próprias permissões, credenciais e raiz do sistema de arquivos
-pelas APIs locais do ps5-payload-sdk, seguindo o Spectrum Library. Não utiliza
+pelas APIs locais do ps5-payload-sdk. Não utiliza
 servidor de comandos do etaHEN nem exige as opções Network/Legacy CMD server.
 O loader e o ambiente homebrew precisam oferecer suporte às APIs do SDK.
 

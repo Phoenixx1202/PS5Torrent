@@ -55,6 +55,13 @@ jobs:
           clang-18 -Wall -Wextra -Werror -g -fsanitize=address,undefined -pthread -Iinclude scripts/test_tracker_udp.c src/tracker.c src/tracker_udp.c src/net_utils.c src/bencode.c src/app_log.c -o /tmp/test_tracker_udp
           python3 scripts/test_tracker_udp.py /tmp/test_tracker_udp
 
+      - name: Check peer handshake errors and independent connection scheduling
+        run: |
+          clang-18 -Wall -Wextra -Werror -g -fsanitize=address,undefined -Iinclude scripts/test_peer_transport.c src/peer_wire.c src/net_utils.c -o /tmp/test_peer_transport
+          /tmp/test_peer_transport
+          clang-18 -Wall -Wextra -Werror -g -fsanitize=address,undefined -pthread -Iinclude scripts/test_peer_discovery.c src/app_log.c src/torrent_mgr.c src/torrent.c src/sha1.c src/bencode.c src/piece_mgr.c src/file_io.c src/net_utils.c src/http_server.c src/peer_wire.c src/web_seed.c -o /tmp/test_peer_discovery
+          /tmp/test_peer_discovery
+
       - name: Check persistent logging
         run: |
           clang-18 -Wall -Wextra -Werror -pthread -Iinclude scripts/test_app_log.c src/app_log.c -o /tmp/test_app_log

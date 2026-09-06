@@ -57,13 +57,16 @@ int net_tcp_connect(uint32_t addr, uint16_t port)
 
     int flags = fcntl(sock, F_GETFL, 0);
     if (flags < 0 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
-        close(sock); return -1;
+        int saved_errno = errno;
+        close(sock);
+        errno = saved_errno;
+        return -1;
     }
     int connected = connect(sock, (struct sockaddr *)&saddr, sizeof(saddr));
     if (connected < 0 && errno == EINPROGRESS) {
         fd_set writable;
         FD_ZERO(&writable); FD_SET(sock, &writable);
-        struct timeval timeout = {5, 0};
+        struct timeval timeout = {3, 0};
         int error = 0; socklen_t size = sizeof(error);
         int ready = select(sock + 1, NULL, &writable, NULL, &timeout);
         if (ready > 0 && getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &size) == 0 && !error) {
@@ -74,7 +77,9 @@ int net_tcp_connect(uint32_t addr, uint16_t port)
         }
     }
     if (connected < 0 || fcntl(sock, F_SETFL, flags) < 0) {
+        int saved_errno = errno;
         close(sock);
+        errno = saved_errno;
         return -1;
     }
 
@@ -92,7 +97,7 @@ int net_send_all(int sock, const void *data, size_t len)
             if (errno == EINTR) continue;
             return -1;
         }
-        if (sent == 0) return -1;
+        if (sent == 0) { errno = EPIPE; return -1; }
         ptr += sent;
         remaining -= (size_t)sent;
     }
@@ -111,7 +116,9 @@ int net_recv_exact(int sock, void *buf, size_t len)
             if (errno == EINTR) continue;
             return -1;
         }
-        if (n == 0) return -1; // Connection closed
+        /* EOF before the requested bytes is a truncated exchange. Do not
+         * report stale EINPROGRESS from an earlier successful connect. */
+        if (n == 0) { errno = ECONNRESET; return -1; }
         ptr += n;
         remaining -= (size_t)n;
     }
