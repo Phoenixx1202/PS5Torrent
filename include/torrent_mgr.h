@@ -123,6 +123,10 @@ typedef struct {
     char      torrent_source[4096]; // Original .torrent data (for magnet)
 } managed_torrent_t;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * Initialize the torrent manager.
  */
@@ -217,5 +221,9 @@ const char *torrent_mgr_error_str(torrent_error_t err);
  * Shutdown all torrents and free resources.
  */
 void torrent_mgr_shutdown(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* PS5TORRENT_TORRENT_MGR_H */

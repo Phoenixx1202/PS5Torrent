@@ -46,7 +46,7 @@
     .hero:after{content:"";position:absolute;width:330px;height:330px;right:-105px;top:-190px;border:50px solid rgba(79,167,255,.08);border-radius:50%}
     .hero-row{display:flex;align-items:flex-end;justify-content:space-between;gap:26px;position:relative;z-index:1}
     .eyebrow{font-size:11px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;color:var(--cyan)}
-    .hero h2{font-size:clamp(27px,3.2vw,45px);line-height:1.08;letter-spacing:-1.6px;margin:8px 0 10px;max-width:730px}
+    .hero h2{font-size:clamp(27px,3vw,42px);line-height:1.08;letter-spacing:-1.6px;margin:8px 0 10px;max-width:980px;white-space:nowrap}
     .hero-copy{margin:0;color:#acbdd0;max-width:690px}
     .hero-meta{display:flex;gap:8px;margin-top:20px;flex-wrap:wrap}
     .chip{font-size:11px;font-weight:700;color:#bcd0e7;border:1px solid rgba(129,166,207,.23);background:rgba(4,11,20,.3);border-radius:999px;padding:6px 10px}
@@ -127,7 +127,7 @@
     .toast.error{border-color:#92454c;color:#ffd1d4}
     .toast.success{border-color:#28754d;color:#d9ffea}
     @keyframes toastin{from{opacity:0;transform:translateY(8px)}}
-    @media(max-width:900px){.summary{grid-template-columns:repeat(2,1fr)}.hero-row{align-items:flex-start;flex-direction:column}.details{grid-template-columns:repeat(3,1fr)}.torrent{grid-template-columns:1fr}.torrent-actions{justify-content:flex-end}}
+    @media(max-width:900px){.summary{grid-template-columns:repeat(2,1fr)}.hero-row{align-items:flex-start;flex-direction:column}.hero h2{white-space:normal;max-width:730px}.details{grid-template-columns:repeat(3,1fr)}.torrent{grid-template-columns:1fr}.torrent-actions{justify-content:flex-end}}
     @media(max-width:620px){.shell{padding:16px 12px 42px}.brand p{display:none}.connection-label{display:none}.topbar{gap:10px}.toolbar .btn span{display:none}.hero{padding:22px 18px;border-radius:18px}.hero h2{font-size:28px}.summary{gap:8px}.metric{padding:14px}.metric-value{font-size:20px}.panel-head{align-items:flex-start;flex-direction:column}.filters{margin-left:0;width:100%;overflow:auto}.filter{flex:1}.torrent{padding:14px}.details{grid-template-columns:repeat(2,1fr)}.detail:nth-child(odd){border-left:0;padding-left:0}.paths{grid-template-columns:1fr}.state{margin-left:0}.torrent-top{flex-wrap:wrap}}
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
   </style>
@@ -190,10 +190,10 @@
         </div>
         <button type="button" class="btn small" id="uploadComputer">Enviar arquivo deste computador/celular</button>
         <input type="file" id="fileInput" accept=".torrent,application/x-bittorrent">
-        <div class="or">ou link experimental</div>
+        <div class="or">ou link magnet</div>
         <label class="label" for="magnetInput">Link magnet</label>
         <textarea id="magnetInput" placeholder="magnet:?xt=urn:btih:..."></textarea>
-        <p class="hint">Links magnet ainda dependem de suporte a metadados BEP-9. Para downloads confiáveis, use o arquivo .torrent.</p>
+        <p class="hint">Links magnet são suportados pelo backend libtorrent. Aguarde a metadata aparecer antes do download iniciar.</p>
         <div style="height:18px"></div>
         <label class="label">Salvar em</label>
         <div class="paths" id="storagePaths"></div>

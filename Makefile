@@ -27,9 +27,21 @@ endif
 
 # Project name
 TARGET = PS5Torrent
+USE_LIBTORRENT ?= 0
+
+# Experimental libtorrent PS5 laboratory. This is intentionally separate from
+# the current C engine until the port is verified on hardware.
+PS5TORRENT_LIBTORRENT_VERSION ?= 2.0.12
+PS5TORRENT_BOOST_VERSION ?= boost-1.84.0
+LIBTORRENT_DEPS_DIR ?= $(CURDIR)/.deps/libtorrent
+LIBTORRENT_DIR ?= $(LIBTORRENT_DEPS_DIR)/libtorrent-$(PS5TORRENT_LIBTORRENT_VERSION)
+BOOST_DIR ?= $(LIBTORRENT_DEPS_DIR)/$(PS5TORRENT_BOOST_VERSION)
+LIBTORRENT_BUILD_DIR ?= $(CURDIR)/.build/libtorrent-ps5
+LIBTORRENT_LAB_ELF = $(LIBTORRENT_BUILD_DIR)/ps5torrent-libtorrent-lab.elf
+LIBTORRENT_STATIC_LIB = $(LIBTORRENT_BUILD_DIR)/libtorrent-build/libtorrent-rasterbar.a
 
 # Source files
-SRCS = src/main.c \
+BASE_SRCS = src/main.c \
        src/sha1.c \
        src/bencode.c \
        src/torrent.c \
@@ -43,29 +55,79 @@ SRCS = src/main.c \
        src/ui.c \
        src/app_log.c \
        src/http_server.c \
-       src/torrent_mgr.c \
        src/storage_paths.c \
        src/ps5_jailbreak.c \
        src/console_files.c \
        src/ps5_tile.c \
        src/tile_state.c
 
+ifeq ($(USE_LIBTORRENT),1)
+SRCS = $(BASE_SRCS)
+CPP_SRCS = src/torrent_mgr_libtorrent.cpp
+TARGET = PS5Torrent-libtorrent
+else
+SRCS = $(BASE_SRCS) src/torrent_mgr.c
+CPP_SRCS =
+endif
+
 # Object files
 OBJS = $(SRCS:.c=.o)
+CPP_OBJS = $(CPP_SRCS:.cpp=.o)
 
 # Include paths
 INCLUDES = -Iinclude
+LIBTORRENT_INCLUDES = -I$(LIBTORRENT_DIR)/include -isystem $(BOOST_DIR)
 
 # Compiler flags
 CFLAGS = -O2 \
          -Wall -Wextra \
          -Wno-missing-braces \
          -Wno-unused-parameter
+CXXFLAGS = $(CFLAGS) \
+           -std=c++17 \
+           -fexceptions \
+           -Wno-deprecated-declarations \
+           -DBOOST_ASIO_ENABLE_CANCELIO \
+           -DBOOST_ASIO_NO_DEPRECATED \
+           -DOPENSSL_NO_DTLS1 \
+           -DOPENSSL_NO_SSL2 \
+           -DOPENSSL_NO_SSL3 \
+           -DOPENSSL_NO_TLS1 \
+           -DOPENSSL_NO_TLS1_1 \
+           -DTORRENT_DISABLE_MUTABLE_TORRENTS \
+           -DTORRENT_DISABLE_STREAMING \
+           -DTORRENT_NO_DEPRECATE \
+           -DTORRENT_SSL_PEERS \
+           -DTORRENT_USE_I2P=0 \
+           -DTORRENT_USE_LIBCRYPTO \
+           -DTORRENT_USE_OPENSSL
 
 # Linker flags
 LDLIBS = -lufs -lSceSystemService -lSceAppInstUtil
+LIBTORRENT_LDLIBS = $(LIBTORRENT_STATIC_LIB) -lssl -lcrypto -pthread
 
 all: $(TARGET).elf
+
+libtorrent-deps:
+	PS5TORRENT_LIBTORRENT_VERSION=v$(PS5TORRENT_LIBTORRENT_VERSION) \
+	PS5TORRENT_BOOST_VERSION=$(PS5TORRENT_BOOST_VERSION) \
+	bash scripts/libtorrent/fetch-deps.sh $(LIBTORRENT_DEPS_DIR)
+
+libtorrent-lab-configure: libtorrent-deps
+	$(PS5_PAYLOAD_SDK)/bin/prospero-cmake -S src_libtorrent -B $(LIBTORRENT_BUILD_DIR) \
+	  -DCMAKE_TOOLCHAIN_FILE=$(PS5_PAYLOAD_SDK)/toolchain/prospero.cmake \
+	  -DLIBTORRENT_SOURCE_DIR=$(LIBTORRENT_DIR) \
+	  -DBOOST_ROOT=$(BOOST_DIR) \
+	  -DCMAKE_BUILD_TYPE=Release
+
+libtorrent-engine: libtorrent-lab-configure
+	cmake --build $(LIBTORRENT_BUILD_DIR) --target torrent-rasterbar -j4
+
+libtorrent-lab: libtorrent-lab-configure
+	cmake --build $(LIBTORRENT_BUILD_DIR) --target ps5torrent-libtorrent-lab.elf -j4
+	mkdir -p dist
+	cp $(LIBTORRENT_LAB_ELF) dist/
+	@echo "=== Build complete: dist/ps5torrent-libtorrent-lab.elf ==="
 
 # Keep the embedded dashboard in sync with the editable HTML source.
 src/web_content.h: src/web/index.html src/web/i18n.js scripts/embed_web.py
@@ -78,11 +140,25 @@ src/ps5_tile.o: pkg/PS5Torrent.pkg pkg/sce_sys/param.json
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c -o $@ $<
 
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LIBTORRENT_INCLUDES) -c -o $@ $<
+
+ifeq ($(USE_LIBTORRENT),1)
+$(CPP_OBJS): libtorrent-deps
+endif
+
 # Link the ELF payload
+ifeq ($(USE_LIBTORRENT),1)
+$(TARGET).elf: libtorrent-engine $(OBJS) $(CPP_OBJS) Makefile
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(OBJS) $(CPP_OBJS) $(LDLIBS) $(LIBTORRENT_LDLIBS)
+	@echo "=== Build complete: $(TARGET).elf ==="
+	@ls -lh $(TARGET).elf
+else
 $(TARGET).elf: $(OBJS) Makefile
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(OBJS) $(LDLIBS)
 	@echo "=== Build complete: $(TARGET).elf ==="
 	@ls -lh $(TARGET).elf
+endif
 
 # Deploy to PS5 (requires PS5_HOST and PS5_PORT env vars)
 test: $(TARGET).elf
@@ -95,10 +171,10 @@ test: $(TARGET).elf
 
 # Clean build artifacts
 clean:
-	rm -f $(OBJS) $(TARGET).elf
+	rm -f $(OBJS) $(CPP_OBJS) PS5Torrent.elf PS5Torrent-libtorrent.elf
 
 # Deep clean
 distclean: clean
 	rm -rf *.elf *.o *~
 
-.PHONY: all clean distclean test
+.PHONY: all clean distclean test libtorrent-deps libtorrent-lab-configure libtorrent-engine libtorrent-lab

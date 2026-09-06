@@ -1,0 +1,41 @@
+diff --git a/include/libtorrent/config.hpp b/include/libtorrent/config.hpp
+index 3d0fb5d..f0528b8 100644
+--- a/include/libtorrent/config.hpp
++++ b/include/libtorrent/config.hpp
+@@ -159,7 +159,11 @@ POSSIBILITY OF SUCH DAMAGE.
+ #else
+ 
+ // non-Apple BSD
++#if defined __PROSPERO__
++#define TORRENT_USE_ARC4RANDOM 1
++#else
+ #define TORRENT_USE_GETRANDOM 1
++#endif
+ #define TORRENT_HAS_PTHREAD_SET_NAME 1
+ 
+ #endif // __APPLE__
+diff --git a/src/random.cpp b/src/random.cpp
+index 746e4e0..1a2b284 100644
+--- a/src/random.cpp
++++ b/src/random.cpp
+@@ -61,6 +61,10 @@ extern "C" {
+ }
+ #include "libtorrent/aux_/disable_warnings_pop.hpp"
+ 
++#elif TORRENT_USE_ARC4RANDOM
++
++#include <stdlib.h>
++
+ #elif TORRENT_USE_GETRANDOM
+ 
+ #include <sys/random.h>
+@@ -144,6 +148,9 @@ namespace aux {
+ 			int r = RAND_bytes(reinterpret_cast<unsigned char*>(buffer.data())
+ 				, int(buffer.size()));
+ 			if (r != 1) aux::throw_ex<system_error>(errors::no_entropy);
++#elif TORRENT_USE_ARC4RANDOM
++			::arc4random_buf(buffer.data(), static_cast<std::size_t>(buffer.size()));
++			return;
+ #elif TORRENT_USE_GETRANDOM
+ 			ssize_t const r = ::getrandom(buffer.data(), static_cast<std::size_t>(buffer.size()), 0);
+ 			if (r == ssize_t(buffer.size())) return;

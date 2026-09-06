@@ -5,23 +5,23 @@
 <h1 align="center">PS5Torrent</h1>
 
 <p align="center">
-  Um cliente BitTorrent para PS5 com painel web, acompanhamento em tempo real
-  e aplicativo próprio na tela principal do console.
+  Cliente BitTorrent para PS5 com painel web, acompanhamento em tempo real,
+  seleção de armazenamento no console e aplicativo próprio em Mídias.
 </p>
 
 <p align="center">
-  <a href="https://github.com/jfcardososantos/PS5Torrent/releases/tag/v1.0.0"><img alt="Versão" src="https://img.shields.io/badge/versão-1.0.0-7c5cff?style=for-the-badge"></a>
+  <img alt="Versão" src="https://img.shields.io/badge/versão-2.0.4-7c5cff?style=for-the-badge">
   <a href="https://github.com/jfcardososantos/PS5Torrent/actions/workflows/build.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/jfcardososantos/PS5Torrent/build.yml?branch=main&style=for-the-badge&label=build"></a>
   <img alt="Plataforma" src="https://img.shields.io/badge/plataforma-PS5-006FCD?style=for-the-badge&logo=playstation">
-  <img alt="Linguagem" src="https://img.shields.io/badge/linguagem-C-14b8a6?style=for-the-badge&logo=c">
+  <img alt="Linguagem" src="https://img.shields.io/badge/linguagem-C%20%2B%20C%2B%2B-14b8a6?style=for-the-badge&logo=cplusplus">
   <img alt="Licença" src="https://img.shields.io/badge/licença-GPL--3.0-f59e0b?style=for-the-badge">
 </p>
 
 <p align="center">
-  <a href="#downloads">Downloads</a> •
   <a href="#recursos">Recursos</a> •
   <a href="#como-usar">Como usar</a> •
-  <a href="#compilação">Compilação</a>
+  <a href="#compilação">Compilação</a> •
+  <a href="#estrutura-do-projeto">Estrutura</a>
 </p>
 
 > [!IMPORTANT]
@@ -29,39 +29,26 @@
 > de conteúdo que você tem autorização para baixar. Requer um PS5 com ambiente
 > de homebrew compatível; não utilize uma conta PSN importante durante testes.
 
-## Downloads
-
-A versão 1.0 é distribuída de duas formas:
-
-| Arquivo | Quando usar |
-| --- | --- |
-| `PS5Torrent-v1.0.0.pkg` | Instala o PS5Torrent com ícone próprio na tela principal. |
-| `ps5_torrent-v1.0.0.elf` | Envio direto para um ELF loader nas portas 9021/9020. |
-| Source code | Código completo em `.zip` ou `.tar.gz`, gerado pelo GitHub. |
-
-Os binários oficiais ficam nos assets da página
-**[Releases](https://github.com/jfcardososantos/PS5Torrent/releases/tag/v1.0.0)**.
-O fPKG é uma
-imagem debug experimental e sua instalação depende do firmware e do ambiente
-homebrew utilizado no console.
-
 ## Recursos
 
 - painel responsivo preparado para TV, navegador do PS5 e controle;
-- progresso, velocidade, tamanho restante, ETA e peers em tempo real;
-- upload de arquivos `.torrent` pelo navegador;
-- metainfo single-file e multi-file;
-- trackers HTTP e UDP (IPv4/BEP 15), disponibilidade de peças (bitfield/HAVE), choke/unchoke e blocos de até 16 KiB;
-- conexões com peers em paralelo, com uso imediato de cada conexão pronta e novas tentativas com intervalo progressivo;
-- fallback por web seed HTTP (`url-list`/BEP 19), com lotes de peças contíguas por `Range` e múltiplos lotes em paralelo quando disponível;
-- montagem e verificação SHA-1 da peça completa antes de confirmar a gravação, incluindo peças que cruzam arquivos;
+- progresso, velocidade, tamanho restante, ETA, seeds e peers em tempo real;
+- adição de torrents por arquivo `.torrent` ou magnet link;
+- navegador de arquivos próprio para escolher `.torrent` dentro do PS5;
 - seleção de armazenamento USB, M.2/NVMe ou interno disponível;
-- notificação do sistema com o endereço do painel;
-- instalação em Mídias e mensagem de pronto, sem abertura automática;
-- identificação do payload ativo como `PS5Torrent.elf` no Payload Manager;
-- fPKG com ícone e arte próprios para a tela principal;
-- diagnóstico do console diretamente pelo macOS;
-- build reproduzível com o ps5-payload-sdk v0.41.
+- navegação por pastas no destino de download e criação de nova pasta pelo painel;
+- metainfo single-file e multi-file;
+- backend original em C para builds leves;
+- backend opcional baseado em libtorrent 2.0.12 para maior compatibilidade;
+- suporte no backend libtorrent a HTTP/UDP trackers, DHT, LSD, PEX, uTP, magnet metadata e criptografia de protocolo;
+- conexões paralelas com peers e controle de sessão pelo libtorrent;
+- verificação de integridade das peças antes de concluir o download;
+- logs persistentes em `/data/PS5Torrent/PS5Torrent.log` e tela de logs no painel;
+- rotação automática do arquivo de log ao atingir 1 MB;
+- idioma automático de acordo com o sistema, com suporte a português, inglês e espanhol;
+- instalação em Mídias com mensagem de pronto, sem abertura automática;
+- fPKG com ícone e arte próprios;
+- versão do aplicativo e do pacote definida como 2.0.4.
 
 <p align="center">
   <img src="pkg/sce_sys/pic0.png" alt="Arte do painel PS5Torrent" width="88%">
@@ -69,39 +56,49 @@ homebrew utilizado no console.
 
 ## Como usar
 
-### Aplicativo instalado
+### Aplicativo em Mídias
 
-Execute `PS5Torrent.elf` pelo loader. Ele instala o PKG incorporado em
-**Mídias** e mostra uma mensagem quando estiver pronto. Abra o aplicativo
-manualmente na aba Mídias. O ícone usa o painel local na
-porta 12389; mantenha o ELF ativo e execute-o novamente após reiniciar o console.
+Execute `PS5Torrent.elf` pelo loader. Ao iniciar, ele prepara o serviço local,
+instala o pacote incorporado em **Mídias** quando necessário e mostra uma
+mensagem quando estiver pronto. Depois disso, abra o PS5Torrent manualmente na
+aba Mídias.
 
-Em **Novo torrent → Escolher arquivo .torrent**, navegue nas pastas do PS5
-até selecionar o arquivo. O painel não usa o seletor nativo do navegador do
-console. Pelo computador/celular, também há um botão separado para upload.
-O limite do arquivo de metadados é 1 MB, sem limitar o tamanho do download.
+O aplicativo de Mídias abre o painel local na porta `12389`. O ELF precisa
+continuar ativo enquanto o painel e os downloads estiverem em uso. Após
+reiniciar o console, execute o ELF novamente.
 
-O botão **Logs**, ao lado de **Novo torrent**, abre uma tela preta com texto
-branco e atualização a cada dois segundos. Os eventos são registrados com
-data/hora UTC em `/data/PS5Torrent/PS5Torrent.log`. Ao atingir 1 MB, o
-arquivo anterior é mantido como `PS5Torrent.previous.log`. A tela mostra os
-últimos 64 KB. Se a gravação não estiver disponível, ela informa o problema e
-mostra os eventos em memória. Depois de uma queda, consulte o arquivo salvo.
+### Adicionar torrent
 
-Peers sem resposta são tentados novamente após 30 segundos, com aumento gradual
-até cinco minutos em falhas consecutivas. Endereços repetidos são deduplicados.
-As consultas regulares aos trackers seguem o intervalo informado na resposta,
-conforme o [protocolo BitTorrent](https://www.bittorrent.org/beps/bep_0003.html).
-O log identifica o endereço, a etapa da conexão e o motivo da falha.
+No painel, clique em **Novo torrent**. Você pode:
 
-Em **Salvar em**, selecione um atalho e clique em **Outro caminho** para
-navegar pelas pastas a partir dele. Confirme com **Usar esta pasta**.
-**Criar pasta** abre o teclado apenas para o nome da nova subpasta; após
-criá-la, confirme se ela será o destino. Cancelar mantém o destino anterior.
+- escolher um arquivo `.torrent` navegando pelas pastas do PS5;
+- enviar um arquivo `.torrent` pelo navegador de outro dispositivo;
+- colar um magnet link.
 
-O idioma do PS5 seleciona automaticamente português (Brasil/Portugal), inglês
-ou espanhol. Outros idiomas usam inglês. Até receber o idioma do console,
-o painel usa o idioma do navegador.
+O limite do arquivo de metadados enviado pelo painel é 1 MB. Esse limite vale
+somente para o arquivo `.torrent`, não para o tamanho final do conteúdo baixado.
+
+### Escolher destino
+
+Em **Salvar em**, selecione um atalho de armazenamento disponível. Ao clicar em
+**Outro caminho**, o painel lista as pastas a partir do atalho selecionado.
+Confirme com **Usar esta pasta**.
+
+O botão **Criar pasta** abre o teclado apenas para o nome da nova subpasta. Após
+criar a pasta, confirme se ela será o destino do download.
+
+### Consultar logs
+
+O botão **Logs**, ao lado de **Novo torrent**, abre a tela de diagnóstico do
+aplicativo. Ela mostra os eventos mais recentes, atualiza automaticamente e lê o
+arquivo salvo em:
+
+```text
+/data/PS5Torrent/PS5Torrent.log
+```
+
+Quando o arquivo chega a 1 MB, ele é movido para
+`/data/PS5Torrent/PS5Torrent.previous.log` e um novo arquivo é iniciado.
 
 ### Payload ELF
 
@@ -112,11 +109,6 @@ export PS5_HOST=192.168.1.100
 export PS5_PORT=9021
 make test
 ```
-
-O ELF pronto fica na raiz do projeto como `PS5Torrent.elf`. No Payload Manager,
-use esse mesmo nome para que a identificação da instância ativa corresponda
-ao arquivo. Ao iniciar, o payload instala o PKG v2.0.4 e avisa quando estiver
-pronto. Abra o PS5Torrent manualmente em Mídias.
 
 Também é possível selecionar `PS5Torrent.elf` em um aplicativo de envio de
 payloads. Depois do carregamento, acesse:
@@ -143,7 +135,7 @@ Pré-requisitos:
 - macOS com Command Line Tools (`xcode-select --install`);
 - [Homebrew](https://brew.sh).
 
-Prepare o SDK e compile o ELF:
+Prepare o SDK e compile o ELF padrão:
 
 ```bash
 ./setup.sh
@@ -156,46 +148,99 @@ sem `sudo` e sem alterações no `.zshrc`.
 Comandos adicionais:
 
 ```bash
-make                       # recompila o ELF
+make                       # recompila o ELF padrão
 make clean all             # build limpo
 ./setup.sh --no-deps       # não executa brew install
 ./setup.sh --sdk-only      # prepara apenas o SDK
 ```
 
-### Gerar o fPKG no Mac
+### Build com libtorrent
 
-O pacote de Mídias já acompanha o código. Para conferir e preparar a distribuição:
+Para gerar o ELF com o backend libtorrent:
+
+```bash
+USE_LIBTORRENT=1 ./scripts/build_pkg_macos.sh
+```
+
+Esse comando baixa/prepara libtorrent 2.0.12 e Boost 1.84.0, compila o backend
+e coloca os artefatos finais em `dist/`:
+
+```text
+dist/PS5Torrent.elf
+dist/PS5Torrent.pkg
+```
+
+Também é possível informar caminhos de cache/build manualmente:
+
+```bash
+USE_LIBTORRENT=1 \
+LIBTORRENT_DEPS_DIR=/tmp/ps5torrent-libtorrent \
+LIBTORRENT_BUILD_DIR=/tmp/ps5torrent-libtorrent-build \
+./scripts/build_pkg_macos.sh
+```
+
+### Build de laboratório do libtorrent
+
+Há um alvo separado para validar somente a sessão libtorrent no PS5:
+
+```bash
+make libtorrent-lab
+```
+
+O artefato fica em:
+
+```text
+dist/ps5torrent-libtorrent-lab.elf
+```
+
+Esse ELF procura por padrão o arquivo:
+
+```text
+/data/PS5Torrent/input.torrent
+```
+
+ou aceita um magnet/arquivo `.torrent` por argumento, dependendo do loader usado.
+
+### Gerar o fPKG
+
+O pacote de Mídias já acompanha o código. Para conferir e preparar a
+distribuição:
 
 ```bash
 ./scripts/build_pkg_macos.sh
 ```
 
-O ELF compilado e o mesmo PKG incorporado ficam em `dist/`. Para recriar o
-pacote após alterar as imagens ou metadados, use `python scripts/build_media_pkg.py`
-com `prospero-pub-cmd` disponível. Consulte [pkg/TILE.md](pkg/TILE.md).
+Para gerar a distribuição com o backend libtorrent, use:
+
+```bash
+USE_LIBTORRENT=1 ./scripts/build_pkg_macos.sh
+```
+
+Para recriar o pacote após alterar imagens ou metadados, use
+`python scripts/build_media_pkg.py` com `prospero-pub-cmd` disponível.
 
 O ELF prepara as próprias permissões, credenciais e raiz do sistema de arquivos
-pelas APIs locais do ps5-payload-sdk. Não utiliza
-servidor de comandos do etaHEN nem exige as opções Network/Legacy CMD server.
-O loader e o ambiente homebrew precisam oferecer suporte às APIs do SDK.
+pelas APIs locais do ps5-payload-sdk. O loader e o ambiente homebrew precisam
+oferecer suporte às APIs do SDK.
 
-## Limitações da versão 2.0.4
+## Limitações conhecidas
 
-- magnet links ainda não baixam metadados BEP-9; use arquivos `.torrent`;
-- trackers/web seeds HTTPS, DHT, PEX, MSE/PE e retomada não estão implementados;
-- transferência usa um bloco pendente por peer; buffers de montagem compartilham um limite de 64 MiB, com erro explícito para peças maiores;
+- o backend libtorrent ainda precisa de validação ampla em firmwares e loaders diferentes;
+- trackers HTTPS dependem do suporte OpenSSL/certificados disponível no ambiente de execução;
 - o painel não possui autenticação e deve ficar em uma rede local confiável;
 - compatibilidade do fPKG varia conforme firmware, jailbreak e instalador;
-- a versão ainda precisa de validação mais ampla em hardware real.
+- o serviço precisa que o ELF permaneça ativo durante o uso do aplicativo em Mídias.
 
 ## Estrutura do projeto
 
 ```text
 .
 ├── .github/workflows/     # integração contínua
-├── include/               # headers C
+├── include/               # headers C/C++
 ├── src/                   # cliente, servidor HTTP e painel incorporado
 │   └── web/index.html     # fonte editável da interface
+├── src_libtorrent/        # build/laboratório do backend libtorrent para PS5
+├── scripts/libtorrent/    # preparação de libtorrent e Boost
 ├── pkg/                   # metadados, ícone e artes do aplicativo
 ├── scripts/               # build, diagnóstico e utilitários
 ├── tools/                 # empacotador fPKG para macOS
