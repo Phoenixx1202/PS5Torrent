@@ -21,7 +21,7 @@ jobs:
       - name: Install toolchain dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang-18 lld-18 llvm-18-dev curl unzip
+          sudo apt-get install --yes clang-18 lld-18 llvm-18-dev build-essential cmake curl unzip xz-utils
 
       - name: Install ps5-payload-sdk
         run: |
@@ -71,6 +71,17 @@ jobs:
         run: |
           clang-18 -Wall -Wextra -g -fsanitize=address,undefined -pthread -Iinclude scripts/test_download.c src/app_log.c src/torrent_mgr.c src/torrent.c src/sha1.c src/bencode.c src/piece_mgr.c src/file_io.c src/net_utils.c src/http_server.c src/peer_wire.c src/tracker.c src/tracker_udp.c src/web_seed.c -o /tmp/test_download
           python3 scripts/test_download.py /tmp/test_download
+
+      - name: Build libtorrent payload for release artifact
+        run: |
+          make clean
+          USE_LIBTORRENT=1 \
+            LIBTORRENT_DEPS_DIR=/tmp/ps5torrent-libtorrent \
+            LIBTORRENT_BUILD_DIR=/tmp/ps5torrent-libtorrent-build \
+            make --jobs=2
+          cp PS5Torrent-libtorrent.elf PS5Torrent.elf
+          file PS5Torrent.elf
+          ls -lh PS5Torrent.elf
 
       - name: Upload ELF artifact
         uses: actions/upload-artifact@v4
