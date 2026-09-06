@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "app_log.h"
 #include <stdio.h>
 #include <stdarg.h>
 
@@ -33,13 +34,14 @@ void ui_init(void)
     /* klog_printf will work after __klog_init() in the CRT */
     klog_printf("=== PS5Torrent Initializing ===\n");
     use_klog = 1;
+    app_log_write("INFO", "PS5Torrent v2.0.4 session started");
 }
 
 void ui_print_banner(void)
 {
     ui_log("");
     ui_log("  ╔══════════════════════════════════════════╗");
-    ui_log("  ║         PS5Torrent v1.0                  ║");
+    ui_log("  ║         PS5Torrent v2.0.4                ║");
     ui_log("  ║    BitTorrent Client for PlayStation 5    ║");
     ui_log("  ║         Homebrew ELF Payload              ║");
     ui_log("  ╚══════════════════════════════════════════╝");
@@ -120,6 +122,13 @@ void ui_log(const char *fmt, ...)
     va_list args;
     va_start(args, fmt);
 
+    va_list copy;
+    va_copy(copy, args);
+    char message[1024];
+    vsnprintf(message, sizeof(message), fmt, copy);
+    va_end(copy);
+    app_log_write("INFO", message);
+
     if (use_klog) {
         klog_printf("[PS5T] ");
         /* klog_printf supports format strings */
@@ -144,6 +153,7 @@ void ui_error(const char *fmt, ...)
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
+    app_log_write("ERROR", buf);
     if (use_klog) {
         klog_printf("[PS5T] ERROR: %s\n", buf);
     } else {
@@ -160,6 +170,7 @@ void ui_success(const char *fmt, ...)
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
+    app_log_write("SUCCESS", buf);
     if (use_klog) {
         klog_printf("[PS5T] SUCCESS: %s\n", buf);
     } else {

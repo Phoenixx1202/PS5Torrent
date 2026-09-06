@@ -55,6 +55,14 @@ typedef struct {
     uint32_t  last_request;
     uint64_t  downloaded;
     uint64_t  uploaded;
+    unsigned char *bitfield;
+    size_t bitfield_len;
+    unsigned char *piece_data;
+    size_t piece_size;
+    uint32_t piece_received;
+    uint32_t pending_length;
+    uint64_t request_time;
+    uint64_t last_activity;
 } torrent_peer_t;
 
 /**
@@ -62,6 +70,7 @@ typedef struct {
  */
 typedef struct {
     char            id[64];          // Unique ID (hash hex)
+    uint64_t        generation;      // Invalidates background discovery on stop/remove.
     char            name[256];       // Display name
     char            save_path[512];  // Download directory
     unsigned char   info_hash[20];
@@ -91,6 +100,7 @@ typedef struct {
 
     // Timing
     uint64_t  last_announce_time;
+    uint64_t  last_progress_time;
     uint64_t  last_speed_calc;
     uint64_t  last_downloaded;
     uint64_t  last_uploaded;

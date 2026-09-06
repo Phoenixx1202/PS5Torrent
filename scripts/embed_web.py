@@ -24,6 +24,8 @@ def main() -> int:
     source = Path(sys.argv[1])
     output = Path(sys.argv[2])
     html = source.read_text(encoding="utf-8")
+    html = html.replace('<script src="i18n.js"></script>',
+                        '<script>\n' + (source.parent / 'i18n.js').read_text(encoding='utf-8') + '\n</script>')
     chunks = html.splitlines(keepends=True)
 
     rendered = [

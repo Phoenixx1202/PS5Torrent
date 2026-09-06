@@ -2,11 +2,10 @@
 #define PS5TORRENT_PS5_JAILBREAK_H
 
 /**
- * Ask etaHEN's local command service to jailbreak the current fPKG process.
- * Payloads started by an ELF loader are normally privileged already, so a
- * missing daemon is not fatal and is reported to the caller.
+ * Configure the current process credentials and root directory directly
+ * through ps5-payload-sdk, following Spectrum's own-process setup.
  *
- * @return 0 when etaHEN accepted the request, -1 otherwise.
+ * @return 0 on success, -1 if any required operation failed.
  */
 int ps5_request_jailbreak(void);
 

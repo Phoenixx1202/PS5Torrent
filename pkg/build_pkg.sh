@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compatibilidade: o projeto só produz payload ELF e bundle de transferência.
+# Compatibility entry point for the ELF and embedded media PKG distribution.
 
 set -euo pipefail
 

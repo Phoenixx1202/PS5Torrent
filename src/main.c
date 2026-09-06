@@ -1,5 +1,5 @@
 /**
- * PS5Torrent v2.0 - Web Interface + Multi-Torrent Engine
+ * PS5Torrent v2.0.4 - Web Interface + Multi-Torrent Engine
  *
  * BitTorrent Client for PlayStation 5 with embedded web UI.
  * Access the web interface at http://PS5_IP:12389/
@@ -18,6 +18,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
@@ -34,14 +36,37 @@
 #include "piece_mgr.h"
 #include "file_io.h"
 #include "ui.h"
+#include "app_log.h"
 #include "http_server.h"
 #include "torrent_mgr.h"
 #include "storage_paths.h"
 #include "ps5_jailbreak.h"
-#include "ps5_browser.h"
 #include "web_content.h"
+#include "console_files.h"
+#include "ps5_tile.h"
 
-static int etahen_jailbreak_active = 0;
+extern int sceSystemServiceParamGetInt(int param, int *value);
+static const char *system_language = "en-US";
+
+static const char *localized(const char *pt, const char *en, const char *es)
+{
+    if (!strncmp(system_language, "pt", 2)) return pt;
+    if (!strncmp(system_language, "es", 2)) return es;
+    return en;
+}
+
+static void detect_system_language(void)
+{
+    int language = -1;
+    /* SystemService language parameter, shared by PS4 and PS5. */
+    if (sceSystemServiceParamGetInt(1, &language) == 0) {
+        if (language == 7) system_language = "pt-PT";
+        else if (language == 17) system_language = "pt-BR";
+        else if (language == 3 || language == 20) system_language = "es-ES";
+    }
+}
+
+static int local_access_active = 0;
 
 static void json_escape_text(const char *input, char *output, size_t output_size)
 {
@@ -109,13 +134,15 @@ static http_response_t *torrent_start_error_response(int index,
     const char *message = mt && mt->error_msg[0]
                         ? mt->error_msg : "Não foi possível iniciar o torrent";
     int status = mt && mt->error_type == TERR_WRITE_FAILED ? 403 : 400;
+    ui_error("Torrent start failed: id=%d, error_code=%d, HTTP_status=%d, message=%s",
+             index, mt ? (int)mt->error_type : -1, status, message);
     char detailed[512];
     char escaped[512];
     char json[640];
 
-    if (status == 403 && !etahen_jailbreak_active) {
+    if (status == 403 && !local_access_active) {
         snprintf(detailed, sizeof(detailed),
-                 "%s. No etaHEN, ative Network e Legacy CMD server e reabra o app",
+                 "%s. O payload não conseguiu obter acesso local; reinicie-o pelo loader",
                  message);
         message = detailed;
     }
@@ -137,6 +164,18 @@ static http_response_t *handle_web_index(const http_request_t *req)
 {
     return http_response_new(200, "text/html; charset=utf-8",
                              web_index_html, strlen(web_index_html));
+}
+
+static http_response_t *handle_api_logs(const http_request_t *req)
+{
+    if (req->method != HTTP_GET)
+        return http_response_new(405, "text/plain", "GET required", 12);
+    size_t length = 0;
+    char *text = app_log_read(&length);
+    if (!text) return http_response_new(500, "text/plain", "Log unavailable", 15);
+    http_response_t *response = http_response_new(200, "text/plain; charset=utf-8", text, length);
+    free(text);
+    return response;
 }
 
 /**
@@ -226,19 +265,9 @@ static http_response_t *handle_api_upload(const http_request_t *req)
     /* Try multipart form data */
     if (!http_get_upload(req->body, req->body_len, "torrent",
                          &file_data, &file_len, filename, sizeof(filename))) {
-        /* Try URL-encoded form */
-        char data_b64[HTTP_MAX_BODY] = {0};
-        http_get_param(req->body, "torrent_data", data_b64, sizeof(data_b64));
-        http_get_param(req->body, "path", path, sizeof(path));
-
-        if (!data_b64[0]) {
-            return http_response_new(400, "application/json",
-                "{\"success\":false,\"error\":\"No torrent file found\"}", 51);
-        }
-
-        /* Base64 decode not implemented in this simple version */
-        return http_response_new(400, "application/json",
-            "{\"success\":false,\"error\":\"Use multipart upload instead\"}", 56);
+        static const char error[] =
+            "{\"success\":false,\"error\":\"Use multipart upload instead\"}";
+        return http_response_new(400, "application/json", error, sizeof(error) - 1);
     }
 
     http_get_multipart_field(req->body, req->body_len, "path",
@@ -260,7 +289,9 @@ static http_response_t *handle_api_upload(const http_request_t *req)
                                  body, sizeof(body) - 1);
     }
 
+    ui_log("Parsing uploaded torrent: bytes=%zu, destination=%s", file_len, save_path);
     int idx = torrent_mgr_add_raw((const unsigned char *)file_data, file_len, save_path);
+    ui_log("Torrent upload parsed: bytes=%zu, result=%d", file_len, idx);
     if (idx < 0) {
         return http_response_new(400, "application/json",
             "{\"success\":false,\"error\":\"Invalid torrent file\"}", 50);
@@ -285,6 +316,37 @@ static http_response_t *handle_api_upload(const http_request_t *req)
 /**
  * API: Torrent action (start/stop/remove).
  */
+static http_response_t *handle_api_local(const http_request_t *req)
+{
+    char source[1024] = {0}, destination[512] = {0}, save_path[512];
+    if (req->method != HTTP_POST || !req->body)
+        return http_response_new(400, "application/json", "{}", 2);
+    http_get_param(req->body, "source", source, sizeof(source));
+    http_get_param(req->body, "path", destination, sizeof(destination));
+    if (!destination[0]) snprintf(destination, sizeof(destination), "%s", storage_paths_get_default());
+    size_t size = 0;
+    ui_log("Reading local torrent: source=%s, destination=%s", source, destination);
+    unsigned char *data = console_torrent_read(source, &size);
+    if (!data || build_save_path(destination, save_path, sizeof(save_path)) < 0) {
+        free(data);
+        static const char error[] = "{\"error\":\"Cannot read torrent or destination (maximum 1 MB)\"}";
+        return http_response_new(400, "application/json", error, sizeof(error) - 1);
+    }
+    int index = torrent_mgr_add_raw(data, size, save_path);
+    ui_log("Local torrent parsed: source=%s, bytes=%zu, result=%d", source, size, index);
+    free(data);
+    if (index < 0) {
+        static const char error[] = "{\"error\":\"Invalid torrent or torrent limit reached\"}";
+        return http_response_new(400, "application/json", error, sizeof(error) - 1);
+    }
+    if (torrent_mgr_start(index) < 0) return torrent_start_error_response(index, 1);
+    char escaped[1536], json[1664];
+    managed_torrent_t *mt = torrent_mgr_get(index);
+    json_escape_text(mt ? mt->name : "torrent", escaped, sizeof(escaped));
+    int n = snprintf(json, sizeof(json), "{\"success\":true,\"id\":%d,\"name\":\"%s\"}", index, escaped);
+    return http_response_new(200, "application/json", json, (size_t)n);
+}
+
 static http_response_t *handle_api_action(const http_request_t *req)
 {
     if (req->method != HTTP_POST) {
@@ -382,10 +444,10 @@ static http_response_t *handle_api_status(const http_request_t *req)
 {
     char resp[512];
     int n = snprintf(resp, sizeof(resp),
-        "{\"status\":\"running\",\"version\":\"2.0\",\"jailbroken\":%s,"
-        "\"torrents\":%d,\"capacity\":%d}",
-        etahen_jailbreak_active ? "true" : "false",
-        torrent_mgr_count(), torrent_mgr_capacity());
+        "{\"status\":\"running\",\"version\":\"2.0.4\",\"jailbroken\":%s,"
+        "\"torrents\":%d,\"capacity\":%d,\"language\":\"%s\"}",
+        local_access_active ? "true" : "false",
+        torrent_mgr_count(), torrent_mgr_capacity(), system_language);
     return http_response_new(200, "application/json", resp, (size_t)n);
 }
 
@@ -464,31 +526,40 @@ static int get_local_ip(char *buf, size_t bufsz)
  */
 int main(void)
 {
+    /* Match Spectrum: a closed HTTP/peer/log connection must not kill us. */
+    signal(SIGPIPE, SIG_IGN);
+    /* etaHEN matches the main thread name to the payload filename. */
+    syscall(SYS_thr_set_name, -1, "PS5Torrent.elf");
     /* Initialize subsystems */
     ui_init();
+    /* Try before privilege setup as well, so early startup failures leave traces
+     * whenever the loader already grants access to the application folder. */
+    app_log_open("/data/PS5Torrent");
 
     ui_print_banner();
 
-    /* The system browser API requires UserService to be initialized first. */
-    int browser_ready = ps5_browser_init() == 0;
+    detect_system_language();
 
     /* Initialize networking first */
     if (net_init() < 0) {
         ui_error("Failed to initialize networking");
-        ui_notify("PS5Torrent não iniciou: falha ao preparar a rede.");
-        ps5_browser_shutdown();
+        ui_notify("%s", localized("PS5Torrent não iniciou: falha ao preparar a rede.",
+                  "PS5Torrent could not start: network initialization failed.",
+                  "PS5Torrent no pudo iniciar: error al preparar la red."));
         return 1;
     }
 
-    /* fPKGs start sandboxed. etaHEN can grant filesystem access through its
-     * local command service; payloads sent to an ELF loader may already have
-     * the required privileges and continue normally when the service is off. */
+    /* Configure our own credentials and filesystem root, as in Spectrum. */
     if (ps5_request_jailbreak() == 0) {
-        etahen_jailbreak_active = 1;
-        ui_log("etaHEN jailbreak request accepted");
+        local_access_active = 1;
+        ui_log("Local SDK filesystem access ready");
     } else {
-        ui_log("etaHEN jailbreak service unavailable; checking current access");
+        ui_error("Local SDK privilege setup incomplete; using available access");
     }
+
+    if (app_log_open("/data/PS5Torrent") < 0)
+        ui_error("Persistent logging unavailable; using the in-memory log");
+    else ui_log("Persistent log ready: /data/PS5Torrent/PS5Torrent.log");
 
     /* Initialize HTTP server */
     ui_log("Initializing web interface on port %d...", HTTP_PORT);
@@ -496,20 +567,25 @@ int main(void)
     if (http_server_init(HTTP_PORT) < 0) {
         ui_error("Failed to start HTTP server on port %d", HTTP_PORT);
         ui_error("Make sure port %d is not in use.", HTTP_PORT);
-        ui_notify("PS5Torrent não iniciou: a porta %d já está em uso.",
+        ui_notify(localized("PS5Torrent não iniciou: a porta %d já está em uso.",
+                  "PS5Torrent could not start: port %d is in use.",
+                  "PS5Torrent no pudo iniciar: el puerto %d está ocupado."),
                   HTTP_PORT);
         net_cleanup();
-        ps5_browser_shutdown();
         return 1;
     }
 
     /* Register specific API prefixes before the catch-all web route. */
     http_server_register("/api/torrents/add", handle_api_add);
     http_server_register("/api/torrents/upload", handle_api_upload);
+    http_server_register("/api/torrents/local", handle_api_local);
     http_server_register("/api/torrents/", handle_api_action);
     http_server_register("/api/torrents", handle_api_torrents);
     http_server_register("/api/paths", handle_api_paths);
     http_server_register("/api/status", handle_api_status);
+    http_server_register("/api/logs", handle_api_logs);
+    http_server_register("/api/files/mkdir", console_files_mkdir);
+    http_server_register("/api/files", console_files_list);
 
     /* Catch-all web UI handler must remain last. */
     http_server_register("/", handle_web_index);
@@ -557,15 +633,21 @@ int main(void)
     ui_log("");
     ui_log("Status: HTTP server active | Torrent engine ready");
 
-    ui_notify("PS5Torrent está ativo\nPainel: http://%s:%d/",
-              local_ip, HTTP_PORT);
-
-    if (browser_ready &&
-        ps5_browser_open("http://127.0.0.1:12389/") == 0)
-        ui_log("Opening the web interface on the PS5...");
-    else {
-        ui_error("Could not open the web interface automatically");
-        ui_notify("Abra o navegador em http://127.0.0.1:%d/", HTTP_PORT);
+    /* Install the media tile and stay active until the user opens it. */
+    int tile_result = ps5_tile_install();
+    if (tile_result < 0) {
+        ui_error("Media tile installation failed; web service remains available");
+        ui_notify("%s", localized("Não foi possível confirmar a instalação do PS5Torrent em Mídias. Consulte o log.",
+                  "Could not confirm PS5Torrent installation in Media. Check the log.",
+                  "No se pudo confirmar la instalación de PS5Torrent en Medios. Consulta el registro."));
+    } else if (tile_result == 1) {
+        ui_notify("%s", localized("Instalação do PS5Torrent aceita. Aguardando registro em Mídias.",
+                  "PS5Torrent installation accepted. Waiting for Media registration.",
+                  "Instalación de PS5Torrent aceptada. Esperando el registro en Medios."));
+    } else {
+        ui_notify("%s", localized("PS5Torrent v2.0.4 pronto! Abra o aplicativo na aba Mídias.",
+                  "PS5Torrent v2.0.4 is ready! Open the app in the Media tab.",
+                  "¡PS5Torrent v2.0.4 está listo! Abre la aplicación en la pestaña Medios."));
     }
 
     if (default_path[0]) {
@@ -578,11 +660,21 @@ int main(void)
 
     while (running) {
         uint64_t now = get_time_ms();
+        static uint64_t last_tile_poll = 0;
+        if (tile_result == 1 && now - last_tile_poll >= 1000) {
+            last_tile_poll = now;
+            tile_result = ps5_tile_poll();
+            if (tile_result == 0)
+                ui_notify("%s", localized("PS5Torrent v2.0.4 pronto! Abra o aplicativo na aba Mídias.",
+                          "PS5Torrent v2.0.4 is ready! Open the app in the Media tab.",
+                          "¡PS5Torrent v2.0.4 está listo! Abre la aplicación en la pestaña Medios."));
+        }
+
 
         /* Poll HTTP server (5ms timeout - quick check) */
         int ret = http_server_poll(5);
         if (ret < 0) {
-            ui_error("HTTP server error, shutting down...");
+            ui_error("HTTP listener failed: errno=%d (%s)", errno, strerror(errno));
             break;
         }
 
@@ -607,8 +699,8 @@ int main(void)
     torrent_mgr_shutdown();
     http_server_shutdown();
     net_cleanup();
-    ps5_browser_shutdown();
 
     ui_log("PS5Torrent terminated.");
+    app_log_close();
     return 0;
 }

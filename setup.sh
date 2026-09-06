@@ -137,7 +137,7 @@ export PS5_PAYLOAD_SDK="$SDK_DIR"
 
 if [ "$BUILD_PROJECT" -eq 1 ]; then
     make -C "$SCRIPT_DIR" clean all
-    printf '\nBuild concluído: %s/ps5_torrent.elf\n' "$SCRIPT_DIR"
+    printf '\nBuild concluído: %s/PS5Torrent.elf\n' "$SCRIPT_DIR"
 else
     printf '\nSDK pronto. Para compilar: make\n'
 fi

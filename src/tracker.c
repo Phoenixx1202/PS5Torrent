@@ -1,10 +1,20 @@
 #include "tracker.h"
 #include "net_utils.h"
 #include "bencode.h"
+#include "app_log.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <errno.h>
+
+static void http_tracker_log(const char *host, const char *stage, int code, size_t bytes)
+{
+    char message[512];
+    snprintf(message, sizeof(message), "HTTP tracker: host=%s, stage=%s, code=%d, bytes=%zu",
+             host, stage, code, bytes);
+    app_log_write("INFO", message);
+}
 
 /**
  * Parse HTTP response, extract headers and body.
@@ -47,6 +57,8 @@ tracker_response_t *tracker_announce(const char *tracker_url,
                                      const tracker_params_t *params)
 {
     if (!tracker_url || !params) return NULL;
+    if (strncmp(tracker_url, "udp://", 6) == 0)
+        return tracker_announce_udp(tracker_url, params);
 
     /* Parse tracker URL: http://host:port/announce */
     const char *url = tracker_url;
@@ -119,19 +131,27 @@ tracker_response_t *tracker_announce(const char *tracker_url,
 
     /* Resolve host and connect */
     uint32_t addr;
-    if (net_resolve(host, &addr) < 0) return NULL;
+    if (net_resolve(host, &addr) < 0) {
+        http_tracker_log(host, "DNS resolution failed", 0, 0); return NULL;
+    }
+    http_tracker_log(host, "DNS resolved; connecting", port, 0);
 
     int sock = net_tcp_connect(addr, (uint16_t)port);
-    if (sock < 0) return NULL;
+    if (sock < 0) { http_tracker_log(host, "TCP connection failed (errno)", errno, 0); return NULL; }
 
     /* Set timeout */
-    net_set_timeout(sock, 30);
+    if (net_set_timeout(sock, 30) < 0) {
+        http_tracker_log(host, "Socket timeout setup failed (errno)", errno, 0);
+        net_close(sock); return NULL;
+    }
 
     /* Send HTTP request */
     if (net_send_all(sock, request, (size_t)req_len) < 0) {
+        http_tracker_log(host, "Request send failed (errno)", errno, 0);
         net_close(sock);
         return NULL;
     }
+    http_tracker_log(host, "Request sent; waiting for response", 0, (size_t)req_len);
 
     /* Receive response (use a large buffer) */
     unsigned char resp_buf[HTTP_BUF_SIZE * 4];
@@ -140,7 +160,13 @@ tracker_response_t *tracker_announce(const char *tracker_url,
     while (resp_pos < sizeof(resp_buf)) {
         int n = net_recv_some(sock, resp_buf + resp_pos,
                               sizeof(resp_buf) - resp_pos);
-        if (n <= 0) break;
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) {
+            http_tracker_log(host, n == 0 ? "Server closed response" :
+                             (errno == EAGAIN || errno == EWOULDBLOCK ? "Response timeout (errno)" : "Receive failed (errno)"),
+                             n < 0 ? errno : 0, resp_pos);
+            break;
+        }
         resp_pos += (size_t)n;
     }
 
@@ -153,8 +179,11 @@ tracker_response_t *tracker_announce(const char *tracker_url,
     const unsigned char *body;
     size_t body_len;
 
-    if (parse_http_response(resp_buf, resp_pos, &status_code, &body, &body_len) < 0)
+    if (parse_http_response(resp_buf, resp_pos, &status_code, &body, &body_len) < 0) {
+        http_tracker_log(host, "Invalid HTTP response headers", 0, resp_pos);
         return NULL;
+    }
+    http_tracker_log(host, "HTTP status received", status_code, body_len);
 
     tracker_response_t *tr = calloc(1, sizeof(tracker_response_t));
     if (!tr) return NULL;
@@ -182,6 +211,7 @@ tracker_response_t *tracker_announce(const char *tracker_url,
     /* Parse bencoded tracker response */
     bcode_node_t *root = bcode_parse(body, body_len);
     if (!root) {
+        http_tracker_log(host, "Invalid bencoded tracker response", status_code, body_len);
         tr->failure_reason = strdup("Failed to parse tracker response");
         return tr;
     }

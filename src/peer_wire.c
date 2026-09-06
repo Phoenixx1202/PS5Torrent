@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <errno.h>
 
 void peer_handshake_init(peer_handshake_t *hs,
                          const unsigned char info_hash[20],
@@ -13,9 +16,7 @@ void peer_handshake_init(peer_handshake_t *hs,
     memset(hs, 0, sizeof(peer_handshake_t));
     hs->pstrlen = 19;
     memcpy(hs->pstr, "BitTorrent protocol", 19);
-    /* Set reserved bits: BEP-10 (LTEP), BEP-23 (extended) */
-    hs->reserved[5] |= 0x10; // Bit 5: extended messaging
-    hs->reserved[7] |= 0x01; // Bit 7: BEP-10
+    /* Do not advertise extensions/DHT that this client cannot process. */
     memcpy(hs->info_hash, info_hash, 20);
     memcpy(hs->peer_id, peer_id, 20);
 }
@@ -78,15 +79,29 @@ int peer_send_request(int sock, uint32_t index, uint32_t begin, uint32_t length)
     return net_send_all(sock, msg, 17);
 }
 
-int peer_recv_message(int sock,
+int peer_recv_event(int sock, int *type,
                       uint32_t *piece_index,
                       uint32_t *piece_begin,
                       unsigned char *data,
                       uint32_t *data_len,
                       int timeout_sec)
 {
-    if (net_set_timeout(sock, timeout_sec) < 0)
-        return -1;
+    if (type) *type = PEER_MSG_KEEPALIVE;
+    if (data_len) *data_len = 0;
+    if (timeout_sec == 0) {
+        /* A readable socket can contain just one byte. Never consume a
+         * partial frame then wait forever for the remainder on the UI thread. */
+        uint32_t header;
+        ssize_t n = recv(sock, &header, sizeof(header), MSG_PEEK | MSG_DONTWAIT);
+        if (n == 0) return -1;
+        if (n < 0) return (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) ? 2 : -1;
+        if (n < 4) return 2;
+        uint32_t length = ntohl(header);
+        if (length > 256 * 1024 + 9) return -1;
+        int available = 0;
+        if (ioctl(sock, FIONREAD, &available) < 0) return -1;
+        if ((uint32_t)available < length + 4) return 2;
+    } else if (net_set_timeout(sock, timeout_sec) < 0) return -1;
 
     /* Read message length (4 bytes) */
     uint32_t net_len;
@@ -94,6 +109,7 @@ int peer_recv_message(int sock,
         return -1;
 
     uint32_t msg_len = ntohl(net_len);
+    if (msg_len > 256 * 1024 + 9) return -1;
 
     if (msg_len == 0) {
         /* Keep-alive */
@@ -104,6 +120,10 @@ int peer_recv_message(int sock,
     uint8_t msg_id;
     if (net_recv_exact(sock, &msg_id, 1) < 0)
         return -1;
+    if (type) *type = msg_id;
+    if (msg_id <= PEER_MSG_NOT_INTERESTED && msg_len != 1) return -1;
+    if (msg_id == PEER_MSG_HAVE && msg_len != 5) return -1;
+    if ((msg_id == PEER_MSG_REQUEST || msg_id == PEER_MSG_CANCEL) && msg_len != 13) return -1;
 
     switch (msg_id) {
     case PEER_MSG_CHOKE:
@@ -122,19 +142,18 @@ int peer_recv_message(int sock,
         /* Read piece index (4 bytes) */
         uint32_t net_idx;
         if (net_recv_exact(sock, &net_idx, 4) < 0) return -1;
+        if (piece_index) *piece_index = ntohl(net_idx);
         return 1;
     }
 
     case PEER_MSG_BITFIELD: {
         /* Read bitfield data */
         uint32_t payload_len = msg_len - 1;
-        /* Skip bitfield for now */
+        if (payload_len > 256 * 1024) return -1;
         if (payload_len > 0) {
-            unsigned char *skip = malloc(payload_len);
-            if (!skip) return -1;
-            net_recv_exact(sock, skip, payload_len);
-            free(skip);
+            if (!data || net_recv_exact(sock, data, payload_len) < 0) return -1;
         }
+        if (data_len) *data_len = payload_len;
         return 1;
     }
 
@@ -181,4 +200,10 @@ int peer_recv_message(int sock,
         }
         return 1;
     }
+}
+
+int peer_recv_message(int sock, uint32_t *index, uint32_t *begin,
+                      unsigned char *data, uint32_t *length, int timeout_sec)
+{
+    return peer_recv_event(sock, NULL, index, begin, data, length, timeout_sec);
 }

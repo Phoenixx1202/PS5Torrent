@@ -26,7 +26,7 @@ $(error PS5 payload SDK not found at $(PS5_PAYLOAD_SDK). Run ./setup.sh first or
 endif
 
 # Project name
-TARGET = ps5_torrent
+TARGET = PS5Torrent
 
 # Source files
 SRCS = src/main.c \
@@ -35,15 +35,20 @@ SRCS = src/main.c \
        src/torrent.c \
        src/net_utils.c \
        src/tracker.c \
+       src/tracker_udp.c \
+       src/web_seed.c \
        src/peer_wire.c \
        src/piece_mgr.c \
        src/file_io.c \
        src/ui.c \
+       src/app_log.c \
        src/http_server.c \
        src/torrent_mgr.c \
        src/storage_paths.c \
        src/ps5_jailbreak.c \
-       src/ps5_browser.c
+       src/console_files.c \
+       src/ps5_tile.c \
+       src/tile_state.c
 
 # Object files
 OBJS = $(SRCS:.c=.o)
@@ -58,15 +63,16 @@ CFLAGS = -O2 \
          -Wno-unused-parameter
 
 # Linker flags
-LDLIBS = -lufs -lSceSystemService -lSceUserService
+LDLIBS = -lufs -lSceSystemService -lSceAppInstUtil
 
 all: $(TARGET).elf
 
 # Keep the embedded dashboard in sync with the editable HTML source.
-src/web_content.h: src/web/index.html scripts/embed_web.py
+src/web_content.h: src/web/index.html src/web/i18n.js scripts/embed_web.py
 	python3 scripts/embed_web.py $< $@
 
 src/main.o: src/web_content.h
+src/ps5_tile.o: pkg/PS5Torrent.pkg pkg/sce_sys/param.json
 
 # Compile source files
 %.o: %.c

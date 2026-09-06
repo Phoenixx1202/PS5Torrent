@@ -51,10 +51,13 @@ homebrew utilizado no console.
 - progresso, velocidade, tamanho restante, ETA e peers em tempo real;
 - upload de arquivos `.torrent` pelo navegador;
 - metainfo single-file e multi-file;
-- trackers HTTP, protocolo BitTorrent peer wire e verificação SHA-1 das peças;
+- trackers HTTP e UDP (IPv4/BEP 15), disponibilidade de peças (bitfield/HAVE), choke/unchoke e blocos de até 16 KiB;
+- fallback por web seed HTTP (`url-list`/BEP 19) quando o swarm não fornece peer útil;
+- montagem e verificação SHA-1 da peça completa antes de confirmar a gravação, incluindo peças que cruzam arquivos;
 - seleção de armazenamento USB, M.2/NVMe ou interno disponível;
 - notificação do sistema com o endereço do painel;
-- abertura automática de `http://127.0.0.1:12389/` no PS5;
+- instalação em Mídias e mensagem de pronto, sem abertura automática;
+- identificação do payload ativo como `PS5Torrent.elf` no Payload Manager;
 - fPKG com ícone e arte próprios para a tela principal;
 - diagnóstico do console diretamente pelo macOS;
 - build reproduzível com o ps5-payload-sdk v0.41.
@@ -67,9 +70,31 @@ homebrew utilizado no console.
 
 ### Aplicativo instalado
 
-Instale o `.pkg` usando o instalador do seu ambiente homebrew. Ao abrir o
-ícone **PS5Torrent** na tela principal, o aplicativo inicia o serviço na porta
-12389, exibe uma notificação e abre o painel local no navegador.
+Execute `PS5Torrent.elf` pelo loader. Ele instala o PKG incorporado em
+**Mídias** e mostra uma mensagem quando estiver pronto. Abra o aplicativo
+manualmente na aba Mídias. O ícone usa o painel local na
+porta 12389; mantenha o ELF ativo e execute-o novamente após reiniciar o console.
+
+Em **Novo torrent → Escolher arquivo .torrent**, navegue nas pastas do PS5
+até selecionar o arquivo. O painel não usa o seletor nativo do navegador do
+console. Pelo computador/celular, também há um botão separado para upload.
+O limite do arquivo de metadados é 1 MB, sem limitar o tamanho do download.
+
+O botão **Logs**, ao lado de **Novo torrent**, abre uma tela preta com texto
+branco e atualização a cada dois segundos. Os eventos são registrados em inglês,
+com data/hora UTC, em `/data/PS5Torrent/PS5Torrent.log`. Ao atingir 1 MB, o
+arquivo anterior é mantido como `PS5Torrent.previous.log`. A tela mostra os
+últimos 64 KB. Se a gravação não estiver disponível, ela informa o problema e
+mostra os eventos em memória. Depois de uma queda, consulte o arquivo salvo.
+
+Em **Salvar em**, selecione um atalho e clique em **Outro caminho** para
+navegar pelas pastas a partir dele. Confirme com **Usar esta pasta**.
+**Criar pasta** abre o teclado apenas para o nome da nova subpasta; após
+criá-la, confirme se ela será o destino. Cancelar mantém o destino anterior.
+
+O idioma do PS5 seleciona automaticamente português (Brasil/Portugal), inglês
+ou espanhol. Outros idiomas usam inglês. Até receber o idioma do console,
+o painel usa o idioma do navegador.
 
 ### Payload ELF
 
@@ -81,13 +106,12 @@ export PS5_PORT=9021
 make test
 ```
 
-O ELF pronto fica na raiz do projeto como `ps5_torrent.elf`. No aplicativo do
-loader, escolha esse arquivo; não é necessário copiar outros arquivos do
-repositório. Quando ele iniciar, o painel abre automaticamente no PS5. Se o
-navegador não abrir, acesse `http://IP_DO_PS5:12389/` em qualquer aparelho da
-mesma rede.
+O ELF pronto fica na raiz do projeto como `PS5Torrent.elf`. No Payload Manager,
+use esse mesmo nome para que a identificação da instância ativa corresponda
+ao arquivo. Ao iniciar, o payload instala o PKG v2.0.4 e avisa quando estiver
+pronto. Abra o PS5Torrent manualmente em Mídias.
 
-Também é possível selecionar `ps5_torrent.elf` em um aplicativo de envio de
+Também é possível selecionar `PS5Torrent.elf` em um aplicativo de envio de
 payloads. Depois do carregamento, acesse:
 
 ```text
@@ -119,7 +143,7 @@ Prepare o SDK e compile o ELF:
 ```
 
 O script instala/verifica `llvm@18` e `socat`, baixa o ps5-payload-sdk v0.41,
-confere seu SHA-256 e gera `ps5_torrent.elf`. Tudo permanece dentro do projeto,
+confere seu SHA-256 e gera `PS5Torrent.elf`. Tudo permanece dentro do projeto,
 sem `sudo` e sem alterações no `.zshrc`.
 
 Comandos adicionais:
@@ -133,28 +157,26 @@ make clean all             # build limpo
 
 ### Gerar o fPKG no Mac
 
-Não é necessário Windows. Instale o .NET 10 e execute:
+O pacote de Mídias já acompanha o código. Para conferir e preparar a distribuição:
 
 ```bash
-brew install dotnet
 ./scripts/build_pkg_macos.sh
 ```
 
-O pacote é gerado em `dist/` usando a
-[LibProsperoPKG](https://github.com/SvenGDK/LibProsperoPKG) v2.5 com uma camada
-SHA3-256 portátil para macOS. A revisão da dependência é fixada e validada pelo
-script. Consulte [pkg/TILE.md](pkg/TILE.md) para mais detalhes.
+O ELF compilado e o mesmo PKG incorporado ficam em `dist/`. Para recriar o
+pacote após alterar as imagens ou metadados, use `python scripts/build_media_pkg.py`
+com `prospero-pub-cmd` disponível. Consulte [pkg/TILE.md](pkg/TILE.md).
 
-Para que o fPKG possa gravar no USB e em outros pontos fora do sandbox, ative
-as opções **Network** e **Legacy CMD server** no toolbox do etaHEN antes de
-abrir o PS5Torrent. O aplicativo solicita a liberação automaticamente ao
-iniciar. O ELF enviado diretamente ao loader continua funcionando sem esse
-serviço quando já tiver acesso ao sistema de arquivos.
+O ELF prepara as próprias permissões, credenciais e raiz do sistema de arquivos
+pelas APIs locais do ps5-payload-sdk, seguindo o Spectrum Library. Não utiliza
+servidor de comandos do etaHEN nem exige as opções Network/Legacy CMD server.
+O loader e o ambiente homebrew precisam oferecer suporte às APIs do SDK.
 
-## Limitações da versão 1.0
+## Limitações da versão 2.0.4
 
 - magnet links ainda não baixam metadados BEP-9; use arquivos `.torrent`;
-- trackers HTTPS/UDP, DHT, PEX, MSE/PE e retomada não estão implementados;
+- trackers/web seeds HTTPS, DHT, PEX, MSE/PE e retomada não estão implementados;
+- transferência usa um bloco pendente por peer; buffers de montagem compartilham um limite de 64 MiB, com erro explícito para peças maiores;
 - o painel não possui autenticação e deve ficar em uma rede local confiável;
 - compatibilidade do fPKG varia conforme firmware, jailbreak e instalador;
 - a versão ainda precisa de validação mais ampla em hardware real.

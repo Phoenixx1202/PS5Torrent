@@ -25,7 +25,16 @@
     .connection.online .connection-dot{background:var(--green);box-shadow:0 0 0 4px rgba(69,212,131,.12)}
     .connection.offline .connection-dot{background:var(--red);box-shadow:0 0 0 4px rgba(255,107,113,.12)}
     .connection.online .connection-label{color:#d9ffea}
-    .toolbar{display:flex;gap:10px}
+    .toolbar{display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .toolbar .btn{min-height:44px;white-space:nowrap}
+    .log-screen{position:fixed;inset:0;z-index:300;background:#000;color:#fff;padding:24px;display:flex;flex-direction:column;gap:16px}
+    .log-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+    .log-header h2{margin:0;font-size:22px}
+    .log-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .log-screen .btn{background:#000;color:#fff;border:1px solid #fff;min-height:44px}
+    .log-status{margin:0;color:#fff;font:13px/1.5 monospace;overflow-wrap:anywhere}
+    .log-output{flex:1;min-height:0;overflow:auto;background:#000;color:#fff;border:1px solid #555;padding:16px;margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 monospace;tab-size:2}
+    @media(max-width:620px){.topbar{flex-wrap:wrap}.toolbar{margin-left:auto}.log-screen{padding:12px}}
     .btn{border:1px solid var(--line);border-radius:12px;min-height:44px;padding:0 17px;display:inline-flex;align-items:center;justify-content:center;gap:9px;background:var(--panel2);cursor:pointer;font-weight:700;transition:transform .16s,border-color .16s,background .16s}
     .btn:hover{border-color:#54739b;transform:translateY(-1px)}
     .btn.primary{border-color:transparent;background:linear-gradient(135deg,var(--blue2),#268cf7);box-shadow:0 10px 25px rgba(23,105,224,.25)}
@@ -103,6 +112,11 @@
     .hint{margin:7px 0 0;font-size:10px;color:#6e829b}
     .paths{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:210px;overflow:auto;padding:2px}
     .path{border:1px solid #263d59;border-radius:11px;background:#0d1a2b;text-align:left;padding:11px;cursor:pointer;min-width:0}
+    #fileEntries .path,#destinationEntries .path{display:flex;align-items:center;gap:10px}
+    #fileEntries .path span,#destinationEntries .path span{overflow-wrap:anywhere;min-width:0}
+    .file-icon{display:block;flex:0 0 24px;width:24px;height:24px}
+    .folder-icon{color:#f3c86b}
+    .torrent-icon{color:#65b5ff}
     .path.selected{border-color:var(--blue);background:rgba(42,125,231,.14)}
     .path.unavailable{opacity:.45}
     .path-title{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800}
@@ -126,7 +140,7 @@
         <div><h1>PS5Torrent</h1><p>Central de downloads do console</p></div>
       </div>
       <div class="connection" id="connection"><span class="connection-dot"></span><span class="connection-label">Conectando...</span></div>
-      <div class="toolbar"><button class="btn primary" id="openAdd"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span>Novo torrent</span></button></div>
+      <div class="toolbar"><button class="btn" id="openLogs" aria-label="Logs"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3h14v18H5zM8 7h8M8 11h8M8 15h6"/></svg><span>Logs</span></button><button class="btn primary" id="openAdd"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span>Novo torrent</span></button></div>
     </header>
 
     <section class="hero">
@@ -167,7 +181,14 @@
       <div class="modal-head"><h3 id="addTitle">Adicionar download</h3><button class="close" id="closeAdd" aria-label="Fechar">×</button></div>
       <div class="form">
         <label class="label">Arquivo .torrent</label>
-        <label class="drop" id="dropZone" for="fileInput"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 5-5m-5 5-5-5"/><path d="M5 20h14"/></svg><strong id="fileLabel">Escolher arquivo .torrent</strong><span id="fileHelp">Selecione no armazenamento acessível pelo navegador</span></label>
+        <button type="button" class="drop" id="dropZone" style="width:100%"><strong id="fileLabel">Escolher arquivo .torrent</strong><span id="fileHelp">Selecione nas pastas do PS5</span></button>
+        <div id="fileBrowser" class="hidden">
+          <div class="form-footer"><button class="btn small" id="fileRoot">Raiz</button><button class="btn small" id="fileParent">Pasta anterior</button></div>
+          <p class="path-code" id="browsePath">/</p>
+          <div class="paths" id="fileEntries"></div>
+          <button class="btn small hidden" id="fileMore">Mais arquivos</button>
+        </div>
+        <button type="button" class="btn small" id="uploadComputer">Enviar arquivo deste computador/celular</button>
         <input type="file" id="fileInput" accept=".torrent,application/x-bittorrent">
         <div class="or">ou link experimental</div>
         <label class="label" for="magnetInput">Link magnet</label>
@@ -178,73 +199,191 @@
         <div class="paths" id="storagePaths"></div>
         <div style="height:10px"></div>
         <label class="label" for="customPath">Outro caminho</label>
-        <input class="text-input" id="customPath" type="text" placeholder="/mnt/usb0/" style="min-height:44px">
+        <button class="btn" id="customPath" type="button" style="width:100%;justify-content:flex-start">Escolher pasta</button>
+        <div id="destinationBrowser" class="hidden">
+          <div class="form-footer"><button class="btn small" id="destinationShortcut" type="button">Atalho selecionado</button><button class="btn small" id="destinationParent" type="button">Pasta anterior</button></div>
+          <p class="path-code" id="destinationPath"></p>
+          <div class="paths" id="destinationEntries"></div>
+          <button class="btn small hidden" id="destinationMore" type="button">Mais pastas</button>
+          <div class="form-footer"><button class="btn small" id="newFolder" type="button">Criar pasta</button><button class="btn primary small" id="useDestination" type="button">Usar esta pasta</button><button class="btn small" id="cancelDestination" type="button">Cancelar</button></div>
+          <div id="newFolderForm" class="hidden">
+            <label class="label" for="newFolderName">Nome da pasta</label>
+            <input class="text-input" id="newFolderName" type="text" maxlength="255" autocomplete="off" style="min-height:44px">
+            <div class="form-footer"><button class="btn small primary" id="createFolder" type="button">Criar</button><button class="btn small" id="cancelFolder" type="button">Cancelar</button></div>
+          </div>
+        </div>
         <p class="hint">Os arquivos serão organizados automaticamente na subpasta <strong>torrents</strong> do destino escolhido.</p>
         <div class="form-footer"><button class="btn" id="cancelAdd">Cancelar</button><button class="btn primary" id="startDownload">Iniciar download</button></div>
       </div>
     </section>
   </div>
+  <section class="log-screen hidden" id="logScreen" role="dialog" aria-modal="true" aria-labelledby="logTitle" lang="en">
+    <header class="log-header"><h2 id="logTitle">PS5Torrent Logs</h2><div class="log-actions"><label><input type="checkbox" id="logFollow" checked> Auto-scroll</label><button class="btn" id="refreshLogs" type="button">Refresh</button><button class="btn" id="closeLogs" type="button">Back</button></div></header>
+    <p class="log-status">/data/PS5Torrent/PS5Torrent.log · Latest 64 KB · UTC timestamps</p>
+    <p class="log-status" id="logStatus" role="status">Waiting for logs.</p>
+    <pre class="log-output" id="logOutput" tabindex="0">No events yet.</pre>
+  </section>
   <div class="toast-wrap" id="toasts" aria-live="polite"></div>
 
+  <script src="i18n.js"></script>
   <script>
-    var state={torrents:[],filter:'all',selectedPath:'',selectedFile:null,busy:false};
+    captureMessages();setLanguage(locale);
+    var state={torrents:[],filter:'all',selectedPath:'',selectedFile:null,selectedSource:'',browsePath:'/',browseNext:-1,browseRequest:0,customDestination:'',destinationPath:'',destinationNext:-1,destinationRequest:0,destinationLoading:false,creatingFolder:false,busy:false};
     var labels={downloading:'Baixando',done:'Concluído',seeding:'Enviando',stopped:'Pausado',error:'Atenção'};
     var el=function(id){return document.getElementById(id)};
+    var logTimer=null,logRequest=0,logPending=false;
+    function refreshLogs(){
+      if(logPending||el('logScreen').classList.contains('hidden'))return;
+      logPending=true;var request=logRequest;
+      fetch('/api/logs').then(function(response){if(!response.ok)throw new Error('Could not read application logs.');return response.text()}).then(function(text){
+        if(request!==logRequest)return;
+        el('logOutput').textContent=text||'No events yet.';
+        el('logStatus').textContent='Updated at '+new Date().toLocaleTimeString('en-US');
+        if(el('logFollow').checked)el('logOutput').scrollTop=el('logOutput').scrollHeight;
+      }).catch(function(){if(request===logRequest)el('logStatus').textContent='Connection lost. Saved logs remain in the application folder.'}).then(function(){if(request===logRequest)logPending=false});
+    }
+    function openLogs(){
+      el('logScreen').classList.remove('hidden');document.body.style.overflow='hidden';
+      el('closeLogs').focus();refreshLogs();if(!logTimer)logTimer=setInterval(refreshLogs,2000);
+    }
+    function closeLogs(){
+      logRequest++;logPending=false;clearInterval(logTimer);logTimer=null;
+      el('logScreen').classList.add('hidden');document.body.style.overflow='';el('openLogs').focus();
+    }
+    el('openLogs').onclick=openLogs;el('closeLogs').onclick=closeLogs;el('refreshLogs').onclick=refreshLogs;
+    document.addEventListener('keydown',function(event){
+      if(el('logScreen').classList.contains('hidden'))return;
+      event.stopImmediatePropagation();
+      if(event.key==='Escape')closeLogs();
+      if(event.key==='Tab'){
+        var nodes=el('logScreen').querySelectorAll('button,input,[tabindex]'),first=nodes[0],last=nodes[nodes.length-1];
+        if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
+        else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
+      }
+    });
     function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
     function fmtBytes(bytes){var n=Number(bytes)||0,u=['B','KB','MB','GB','TB'],i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(i&&n<100?1:0)+' '+u[i]}
     function fmtSpeed(bytes){return fmtBytes(bytes)+'/s'}
-    function fmtTime(seconds){if(!isFinite(seconds)||seconds<=0)return'Calculando';if(seconds<60)return Math.ceil(seconds)+' s';if(seconds<3600)return Math.ceil(seconds/60)+' min';if(seconds<86400)return Math.floor(seconds/3600)+' h '+Math.ceil((seconds%3600)/60)+' min';return Math.floor(seconds/86400)+' d '+Math.ceil((seconds%86400)/3600)+' h'}
+    function fmtTime(seconds){if(!isFinite(seconds)||seconds<=0)return tr('Calculando');if(seconds<60)return Math.ceil(seconds)+' s';if(seconds<3600)return Math.ceil(seconds/60)+' min';if(seconds<86400)return Math.floor(seconds/3600)+' h '+Math.ceil((seconds%3600)/60)+' min';return Math.floor(seconds/86400)+' d '+Math.ceil((seconds%86400)/3600)+' h'}
     function iconDownload(){return'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 5-5m-5 5-5-5"/><path d="M5 20h14"/></svg>'}
     function setConnection(mode,text){var c=el('connection');c.className='connection '+mode;c.querySelector('.connection-label').textContent=text}
     function toast(message,type){var node=document.createElement('div');node.className='toast '+(type||'');node.textContent=message;el('toasts').appendChild(node);setTimeout(function(){node.remove()},4200)}
-    function openModal(){el('addModal').classList.remove('hidden');setTimeout(function(){el('fileInput').focus()},50)}
-    function closeModal(){el('addModal').classList.add('hidden')}
+    function openModal(){el('addModal').classList.remove('hidden');setTimeout(function(){el('dropZone').focus()},50)}
+    function closeModal(){closeDestination();el('addModal').classList.add('hidden')}
     function setFilter(filter){state.filter=filter;document.querySelectorAll('.filter').forEach(function(btn){btn.classList.toggle('active',btn.getAttribute('data-filter')===filter)});render()}
     function visibleTorrent(t){if(state.filter==='all')return true;if(state.filter==='error')return t.state==='error'||t.state==='stopped';return t.state===state.filter}
     function torrentCard(t){
       var pct=Math.max(0,Math.min(100,Math.round((Number(t.progress)||0)*100)));
       var remaining=Math.max(0,(Number(t.size)||0)-(Number(t.downloaded)||0));
-      var eta=t.state==='done'?'Finalizado':(t.state==='downloading'?fmtTime(remaining/(Number(t.speed_down)||0)):'—');
+      var eta=t.state==='done'?tr('Finalizado'):(t.state==='downloading'?fmtTime(remaining/(Number(t.speed_down)||0)):'—');
       var canStop=t.state==='downloading'||t.state==='seeding';
       var canStart=t.state==='stopped'||t.state==='error';
       return '<article class="torrent '+(t.state==='done'?'done':'')+'">'+
-        '<div><div class="torrent-top"><div class="torrent-symbol">'+iconDownload()+'</div><div style="min-width:0"><div class="torrent-name">'+esc(t.name||'Torrent sem nome')+'</div><div class="torrent-hash">'+esc(t.hash||'')+'</div></div><span class="state state-'+esc(t.state)+'">'+esc(labels[t.state]||t.state)+'</span></div>'+
+        '<div><div class="torrent-top"><div class="torrent-symbol">'+iconDownload()+'</div><div style="min-width:0"><div class="torrent-name">'+esc(t.name||tr('Torrent sem nome'))+'</div><div class="torrent-hash">'+esc(t.hash||'')+'</div></div><span class="state state-'+esc(t.state)+'">'+esc(tr(labels[t.state]||t.state))+'</span></div>'+
         '<div class="progress-line"><div class="track"><div class="fill" style="width:'+pct+'%"></div></div><div class="pct">'+pct+'%</div></div>'+
-        '<div class="details"><div class="detail"><span>Velocidade</span><strong>'+fmtSpeed(t.speed_down)+'</strong></div><div class="detail"><span>Restante</span><strong>'+fmtBytes(remaining)+'</strong></div><div class="detail"><span>Tempo</span><strong>'+eta+'</strong></div><div class="detail"><span>Baixado</span><strong>'+fmtBytes(t.downloaded)+'</strong></div><div class="detail"><span>Peers</span><strong>'+Number(t.active_peers||0)+' / '+Number(t.peers||0)+'</strong></div></div>'+
-        '<div class="save-path">Destino: '+esc(t.save_path||'—')+'</div></div>'+
-        '<div class="torrent-actions">'+(canStop?'<button class="btn small" data-action="stop" data-id="'+t.id+'">Pausar</button>':'')+(canStart?'<button class="btn small primary" data-action="start" data-id="'+t.id+'">Reiniciar</button>':'')+'<button class="btn small danger" data-action="remove" data-id="'+t.id+'">Remover</button></div>'+
+        tr('<div class="details"><div class="detail"><span>Velocidade</span><strong>')+fmtSpeed(t.speed_down)+tr('</strong></div><div class="detail"><span>Restante</span><strong>')+fmtBytes(remaining)+tr('</strong></div><div class="detail"><span>Tempo</span><strong>')+eta+tr('</strong></div><div class="detail"><span>Baixado</span><strong>')+fmtBytes(t.downloaded)+'</strong></div><div class="detail"><span>Peers</span><strong>'+Number(t.active_peers||0)+' / '+Number(t.peers||0)+'</strong></div></div>'+
+        tr('<div class="save-path">Destino: ')+esc(t.save_path||'—')+'</div></div>'+
+        '<div class="torrent-actions">'+(canStop?'<button class="btn small" data-action="stop" data-id="'+t.id+tr('">Pausar</button>'):'')+(canStart?'<button class="btn small primary" data-action="start" data-id="'+t.id+tr('">Reiniciar</button>'):'')+'<button class="btn small danger" data-action="remove" data-id="'+t.id+tr('">Remover</button></div>')+
         (t.error?'<div class="error-msg">'+esc(t.error)+'</div>':'')+'</article>'
     }
     function render(){
       var torrents=state.torrents||[],active=0,speed=0,downloaded=0,peers=0;
       torrents.forEach(function(t){if(t.state==='downloading'||t.state==='seeding')active++;speed+=Number(t.speed_down)||0;downloaded+=Number(t.downloaded)||0;peers+=Number(t.active_peers)||0});
-      el('totalSpeed').textContent=fmtSpeed(speed);el('activeCount').textContent=active;el('activeSub').textContent=active===1?'1 download ativo':active+' downloads ativos';el('downloadedTotal').textContent=fmtBytes(downloaded);el('peerCount').textContent=peers;
+      el('totalSpeed').textContent=fmtSpeed(speed);el('activeCount').textContent=active;el('activeSub').textContent=active===1?tr('1 download ativo'):active+tr(' downloads ativos');el('downloadedTotal').textContent=fmtBytes(downloaded);el('peerCount').textContent=peers;
       var shown=torrents.filter(visibleTorrent),list=el('torrentList');
-      if(!shown.length){list.innerHTML='<div class="empty"><div><div class="empty-mark">'+iconDownload()+'</div><strong>'+(torrents.length?'Nada neste filtro':'Nenhum download adicionado')+'</strong><span>'+(torrents.length?'Selecione outra categoria acima.':'Use “Novo torrent” para começar.')+'</span></div></div>';return}
+      if(!shown.length){list.innerHTML='<div class="empty"><div><div class="empty-mark">'+iconDownload()+'</div><strong>'+(torrents.length?tr('Nada neste filtro'):tr('Nenhum download adicionado'))+'</strong><span>'+(torrents.length?tr('Selecione outra categoria acima.'):tr('Use “Novo torrent” para começar.'))+'</span></div></div>';return}
       list.innerHTML=shown.map(torrentCard).join('');
     }
-    function fetchJson(url,options){return fetch(url,options).then(function(response){return response.json().then(function(data){if(!response.ok)throw new Error(data.error||'Falha na solicitação');return data})})}
+    function fetchJson(url,options){return fetch(url,options).then(function(response){return response.json().then(function(data){if(!response.ok)throw new Error(tr(data.error||tr('Falha na solicitação')));return data})})}
     function refresh(){
-      return Promise.all([fetchJson('/api/torrents'),fetchJson('/api/status')]).then(function(results){state.torrents=results[0].torrents||[];var info=results[1];setConnection('online','Console conectado');el('versionChip').textContent='PS5Torrent v'+(info.version||'2.0');el('accessChip').textContent=info.jailbroken?'Acesso etaHEN liberado':'Acesso do ELF atual';el('capacityChip').textContent='Até '+(info.capacity||8)+' torrents';el('lastUpdate').textContent='Atualizado às '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});render()}).catch(function(){setConnection('offline','Sem conexão');el('lastUpdate').textContent='Não foi possível falar com o serviço';render()})
+      return Promise.all([fetchJson('/api/torrents'),fetchJson('/api/status')]).then(function(results){state.torrents=results[0].torrents||[];var info=results[1];if(info.language&&info.language!==locale){setLanguage(info.language);loadPaths();}setConnection('online',tr('Console conectado'));el('versionChip').textContent='PS5Torrent v'+(info.version||'2.0.4');el('accessChip').textContent=info.jailbroken?tr('Acesso local liberado'):tr('Acesso do ELF atual');el('capacityChip').textContent=tr('Até ')+(info.capacity||8)+' torrents';el('lastUpdate').textContent=tr('Atualizado às ')+new Date().toLocaleTimeString(locale,{hour:'2-digit',minute:'2-digit',second:'2-digit'});render()}).catch(function(){setConnection('offline',tr('Sem conexão'));el('lastUpdate').textContent=tr('Não foi possível falar com o serviço');render()})
     }
     function loadPaths(){
-      return fetchJson('/api/paths').then(function(data){var paths=data.paths||[],available=paths.filter(function(p){return p.exists&&p.writable}),saved='';try{saved=localStorage.getItem('ps5torrent.path')||''}catch(e){}if(!state.selectedPath&&available.some(function(p){return p.path===saved}))state.selectedPath=saved;if(!available.some(function(p){return p.path===state.selectedPath}))state.selectedPath=available.length?available[0].path:'';var box=el('storagePaths');box.innerHTML=paths.map(function(p){var usable=p.exists&&p.writable,status=!p.exists?'não montado':(p.writable?'gravável':'sem permissão');return'<button type="button" class="path '+(p.path===state.selectedPath?'selected ':'')+(usable?'':'unavailable')+'" data-path="'+esc(p.path)+'" '+(usable?'':'disabled')+'><div class="path-title"><span>'+(p.removable?'USB':'Disco')+'</span><span>'+esc(p.label)+'</span></div><div class="path-code">'+esc(p.path)+' · '+status+'</div></button>'}).join('')+(!available.length?'<div class="hint">Nenhum destino gravável. No etaHEN, ative Network e Legacy CMD server e reabra o app.</div>':'')}).catch(function(){el('storagePaths').innerHTML='<div class="hint">Não foi possível consultar os discos agora.</div>'})
+      return fetchJson('/api/paths').then(function(data){var paths=data.paths||[],available=paths.filter(function(p){return p.exists&&p.writable}),saved='';try{saved=localStorage.getItem('ps5torrent.path')||''}catch(e){}if(!state.selectedPath&&available.some(function(p){return p.path===saved}))state.selectedPath=saved;if(!available.some(function(p){return p.path===state.selectedPath}))state.selectedPath=available.length?available[0].path:'';var box=el('storagePaths');box.innerHTML=paths.map(function(p){var usable=p.exists&&p.writable,status=!p.exists?tr('não montado'):(p.writable?tr('gravável'):tr('sem permissão'));return'<button type="button" class="path '+(p.path===state.selectedPath?'selected ':'')+(usable?'':'unavailable')+'" data-path="'+esc(p.path)+'" '+(usable?'':'disabled')+'><div class="path-title"><span>'+(p.removable?'USB':tr('Disco'))+'</span><span>'+esc(p.label)+'</span></div><div class="path-code">'+esc(p.path)+' · '+status+'</div></button>'}).join('')+(!available.length?tr('<div class="hint">Nenhum destino gravável. Verifique o armazenamento e reinicie o payload pelo loader.</div>'):'')}).catch(function(){el('storagePaths').innerHTML=tr('<div class="hint">Não foi possível consultar os discos agora.</div>')})
     }
-    function selectPath(path){state.selectedPath=path;try{localStorage.setItem('ps5torrent.path',path)}catch(e){}el('customPath').value='';document.querySelectorAll('.path').forEach(function(node){node.classList.toggle('selected',node.getAttribute('data-path')===path)})}
-    function torrentAction(id,action){if(action==='remove'&&!confirm('Remover este torrent da lista? Os arquivos já gravados não serão apagados.'))return;fetchJson('/api/torrents/'+id+'/'+action,{method:'POST'}).then(function(){toast(action==='remove'?'Torrent removido.':'Status atualizado.','success');refresh()}).catch(function(e){toast(e.message,'error')})}
-    function resetForm(){state.selectedFile=null;el('fileInput').value='';el('fileLabel').textContent='Escolher arquivo .torrent';el('fileHelp').textContent='Selecione no armazenamento acessível pelo navegador';el('dropZone').classList.remove('has-file');el('magnetInput').value=''}
+    function selectPath(path){state.selectedPath=path;try{localStorage.setItem('ps5torrent.path',path)}catch(e){}state.customDestination='';el('customPath').textContent=tr('Escolher pasta');closeDestination();document.querySelectorAll('.path').forEach(function(node){node.classList.toggle('selected',node.getAttribute('data-path')===path)})}
+    function torrentAction(id,action){if(action==='remove'&&!confirm(tr('Remover este torrent da lista? Os arquivos já gravados não serão apagados.')))return;fetchJson('/api/torrents/'+id+'/'+action,{method:'POST'}).then(function(){toast(action==='remove'?tr('Torrent removido.'):tr('Status atualizado.'),'success');refresh()}).catch(function(e){toast(e.message,'error')})}
+    function resetForm(){state.selectedFile=null;state.selectedSource='';el('fileInput').value='';el('fileLabel').textContent=tr('Escolher arquivo .torrent');el('fileHelp').textContent=tr('Selecione nas pastas do PS5');el('fileBrowser').classList.add('hidden');el('dropZone').classList.remove('has-file');el('magnetInput').value=''}
+    function fileIcon(directory){
+      return '<svg class="file-icon '+(directory?'folder-icon':'torrent-icon')+'" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(directory?'<path d="M3 7V5h6l2 2h10v13H3z"/><path d="M3 10h18"/>':'<path d="M5 3h9l5 5v13H5z"/><path d="M14 3v5h5M12 11v6m-3-3 3 3 3-3"/>')+'</svg>';
+    }
+    function browseFiles(path,offset){
+      var request=++state.browseRequest;offset=offset||0;
+      el('fileBrowser').classList.remove('hidden');el('fileMore').classList.add('hidden');
+      if(!offset)el('fileEntries').textContent=tr('Carregando...');
+      fetchJson('/api/files?path='+encodeURIComponent(path)+'&offset='+offset).then(function(data){
+        if(request!==state.browseRequest)return;
+        state.browsePath=data.path;state.browseNext=data.next;el('browsePath').textContent=data.path;
+        var entries=data.entries||[];entries.sort(function(a,b){return Number(b.directory)-Number(a.directory)||a.name.localeCompare(b.name)});
+        var html=entries.map(function(entry){var full=(data.path==='/'?'':data.path)+'/'+entry.name;return '<button type="button" class="path" data-source="'+esc(full)+'" data-directory="'+(entry.directory?'1':'0')+'">'+fileIcon(entry.directory)+'<span>'+esc(entry.name)+'</span>'+'</button>'}).join('');
+        if(offset)el('fileEntries').insertAdjacentHTML('beforeend',html);else el('fileEntries').innerHTML=html||tr('<p class="hint">Nenhuma pasta ou arquivo .torrent aqui.</p>');
+        el('fileMore').classList.toggle('hidden',data.next<0);
+      }).catch(function(e){if(request!==state.browseRequest)return;el('fileEntries').textContent=tr('Não foi possível abrir esta pasta.');toast(e.message,'error')});
+    }
     function addTorrent(){
-      if(state.busy)return;var magnet=el('magnetInput').value.trim(),path=el('customPath').value.trim()||state.selectedPath;
-      if(!state.selectedFile&&!magnet){toast('Escolha um arquivo .torrent ou informe um link magnet.','error');return}
-      if(!path){toast('Nenhum destino gravável foi encontrado.','error');return}
-      state.busy=true;el('startDownload').disabled=true;el('startDownload').textContent='Adicionando...';
-      try{localStorage.setItem('ps5torrent.path',path)}catch(e){}var request;if(state.selectedFile){var form=new FormData();form.append('path',path);form.append('torrent',state.selectedFile);request=fetchJson('/api/torrents/upload',{method:'POST',body:form})}else{request=fetchJson('/api/torrents/add',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'magnet='+encodeURIComponent(magnet)+'&path='+encodeURIComponent(path)})}
-      function finish(){state.busy=false;el('startDownload').disabled=false;el('startDownload').textContent='Iniciar download'}
-      request.then(function(data){toast('Download adicionado: '+(data.name||'torrent'),'success');resetForm();closeModal();refresh();finish()},function(e){toast(e.message,'error');finish()})
+      if(state.busy)return;var magnet=el('magnetInput').value.trim(),path=state.customDestination||state.selectedPath;
+      if(!state.selectedFile&&!state.selectedSource&&!magnet){toast(tr('Escolha um arquivo .torrent ou informe um link magnet.'),'error');return}
+      if(!path){toast(tr('Nenhum destino gravável foi encontrado.'),'error');return}
+      state.busy=true;el('startDownload').disabled=true;el('startDownload').textContent=tr('Adicionando...');
+      try{localStorage.setItem('ps5torrent.path',path)}catch(e){}var request;if(state.selectedSource){request=fetchJson('/api/torrents/local',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'source='+encodeURIComponent(state.selectedSource)+'&path='+encodeURIComponent(path)})}else if(state.selectedFile){var form=new FormData();form.append('path',path);form.append('torrent',state.selectedFile);request=fetchJson('/api/torrents/upload',{method:'POST',body:form})}else{request=fetchJson('/api/torrents/add',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'magnet='+encodeURIComponent(magnet)+'&path='+encodeURIComponent(path)})}
+      function finish(){state.busy=false;el('startDownload').disabled=false;el('startDownload').textContent=tr('Iniciar download')}
+      request.then(function(data){toast(tr('Download adicionado: ')+(data.name||'torrent'),'success');resetForm();closeModal();refresh();finish()},function(e){toast(e.message,'error');finish()})
     }
+    function closeDestination(){
+      state.destinationRequest++;state.destinationLoading=false;
+      el('destinationBrowser').classList.add('hidden');el('newFolderForm').classList.add('hidden');
+    }
+    function browseDestination(path,offset){
+      if(state.creatingFolder)return;
+      offset=offset||0;var request=++state.destinationRequest;
+      state.destinationLoading=true;
+      el('destinationBrowser').classList.remove('hidden');el('newFolderForm').classList.add('hidden');
+      el('destinationMore').classList.add('hidden');el('useDestination').disabled=true;el('newFolder').disabled=true;
+      if(!offset)el('destinationEntries').textContent=tr('Carregando...');
+      return fetchJson('/api/files?directories=1&path='+encodeURIComponent(path)+'&offset='+offset).then(function(data){
+        if(request!==state.destinationRequest)return;
+        state.destinationPath=data.path;state.destinationNext=data.next;state.destinationLoading=false;
+        el('destinationPath').textContent=data.path;
+        el('useDestination').disabled=!data.writable;el('newFolder').disabled=!data.writable;
+        var entries=(data.entries||[]).filter(function(entry){return entry.directory});
+        entries.sort(function(a,b){return a.name.localeCompare(b.name)});
+        var html=entries.map(function(entry){var full=(data.path==='/'?'':data.path)+'/'+entry.name;return '<button type="button" class="path" data-destination="'+esc(full)+'">'+fileIcon(true)+'<span>'+esc(entry.name)+'</span></button>'}).join('');
+        if(offset)el('destinationEntries').insertAdjacentHTML('beforeend',html);else el('destinationEntries').innerHTML=html||'<p class="hint">'+tr('Nenhuma subpasta aqui.')+'</p>';
+        el('destinationMore').classList.toggle('hidden',data.next<0);
+      }).catch(function(e){if(request!==state.destinationRequest)return;state.destinationLoading=false;el('destinationEntries').textContent=tr('Não foi possível abrir esta pasta.');toast(e.message,'error')});
+    }
+    function createDestinationFolder(){
+      if(state.creatingFolder||state.destinationLoading)return;
+      var name=el('newFolderName').value.trim(),parent=state.destinationPath,request=state.destinationRequest;
+      if(!name||name==='.'||name==='..'||/[\\/\x00-\x1f\x7f]/.test(name)){toast(tr('Nome de pasta inválido.'),'error');return}
+      state.creatingFolder=true;el('createFolder').disabled=true;
+      fetchJson('/api/files/mkdir',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'path='+encodeURIComponent(parent)+'&name='+encodeURIComponent(name)}).then(function(data){
+        state.creatingFolder=false;el('createFolder').disabled=false;
+        toast(tr('Pasta criada.'),'success');
+        if(request===state.destinationRequest){el('newFolderName').value='';browseDestination(data.path)}
+      }).catch(function(e){state.creatingFolder=false;el('createFolder').disabled=false;toast(e.message,'error')});
+    }
+    el('destinationShortcut').onclick=function(){browseDestination(state.selectedPath)};
+    el('destinationParent').onclick=function(){if(!state.destinationLoading)browseDestination(state.destinationPath.replace(/\/[^/]+\/?$/,'')||'/')};
+    el('destinationMore').onclick=function(){if(!state.destinationLoading&&state.destinationNext>=0)browseDestination(state.destinationPath,state.destinationNext)};
+    el('destinationEntries').onclick=function(event){var node=event.target.closest('[data-destination]');if(node&&!state.destinationLoading)browseDestination(node.getAttribute('data-destination'))};
+    el('useDestination').onclick=function(){if(state.destinationLoading||state.creatingFolder)return;state.customDestination=state.destinationPath;el('customPath').textContent=state.customDestination;closeDestination()};
+    el('cancelDestination').onclick=closeDestination;
+    el('newFolder').onclick=function(){el('newFolderForm').classList.remove('hidden');el('newFolderName').focus()};
+    el('cancelFolder').onclick=function(){el('newFolderForm').classList.add('hidden')};
+    el('createFolder').onclick=createDestinationFolder;
+    el('newFolderName').onkeydown=function(event){if(event.key==='Enter'){event.preventDefault();createDestinationFolder()}};
     el('openAdd').onclick=function(){openModal();loadPaths()};el('closeAdd').onclick=closeModal;el('cancelAdd').onclick=closeModal;el('startDownload').onclick=addTorrent;el('refreshNow').onclick=refresh;
-    el('fileInput').onchange=function(event){var file=event.target.files[0];state.selectedFile=file||null;if(file){el('fileLabel').textContent=file.name;el('fileHelp').textContent=fmtBytes(file.size)+' · pronto para enviar';el('dropZone').classList.add('has-file')}};
-    el('customPath').oninput=function(){if(this.value.trim())document.querySelectorAll('.path').forEach(function(node){node.classList.remove('selected')})};
+    el('dropZone').onclick=function(){browseFiles(state.browsePath)};
+    el('fileRoot').onclick=function(){browseFiles('/')};
+    el('fileParent').onclick=function(){browseFiles(state.browsePath.replace(/\/[^/]+\/?$/,'')||'/')};
+    el('fileMore').onclick=function(){browseFiles(state.browsePath,state.browseNext)};
+    el('fileEntries').onclick=function(event){var node=event.target.closest('[data-source]');if(!node)return;var source=node.getAttribute('data-source');if(node.getAttribute('data-directory')==='1'){browseFiles(source);return}state.selectedSource=source;state.selectedFile=null;el('fileInput').value='';el('fileLabel').textContent=source.split('/').pop();el('fileHelp').textContent=source;el('dropZone').classList.add('has-file');el('fileBrowser').classList.add('hidden')};
+    var consoleBrowser=/PlayStation|Prospero/i.test(navigator.userAgent)||location.hostname==='127.0.0.1';
+    el('uploadComputer').classList.toggle('hidden',consoleBrowser);
+    el('uploadComputer').onclick=function(){if(!consoleBrowser)el('fileInput').click()};
+    el('fileInput').onchange=function(event){var file=event.target.files[0];if(!file)return;if(!/\.torrent$/i.test(file.name)||file.size>1048576){toast(tr('Escolha um arquivo .torrent de até 1 MB.'),'error');return}state.selectedSource='';state.selectedFile=file;el('fileLabel').textContent=file.name;el('fileHelp').textContent=fmtBytes(file.size)+tr(' · pronto para enviar');el('dropZone').classList.add('has-file');el('fileBrowser').classList.add('hidden')};
+    el('customPath').onclick=function(){if(state.selectedPath)browseDestination(state.selectedPath);else toast(tr('Nenhum destino gravável foi encontrado.'),'error')};
     el('storagePaths').onclick=function(event){var node=event.target.closest('.path');if(node)selectPath(node.getAttribute('data-path'))};
     el('torrentList').onclick=function(event){var btn=event.target.closest('[data-action]');if(btn)torrentAction(Number(btn.getAttribute('data-id')),btn.getAttribute('data-action'))};
     document.querySelectorAll('.filter').forEach(function(btn){btn.onclick=function(){setFilter(btn.getAttribute('data-filter'))}});

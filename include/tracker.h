@@ -44,13 +44,15 @@ typedef struct {
 } tracker_params_t;
 
 /**
- * Announce to an HTTP tracker.
+ * Announce to an HTTP or UDP (IPv4, BEP 15) tracker.
  * @param tracker_url  The announce URL (e.g. "http://tracker.example.com/announce")
  * @param params       Announce parameters
  * @return Tracker response (free with tracker_response_free()), or NULL on error
  */
 tracker_response_t *tracker_announce(const char *tracker_url,
                                      const tracker_params_t *params);
+tracker_response_t *tracker_announce_udp(const char *tracker_url,
+                                       const tracker_params_t *params);
 
 /**
  * Free a tracker response.

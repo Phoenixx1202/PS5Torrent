@@ -32,14 +32,42 @@ jobs:
           unzip -q /tmp/ps5-payload-sdk.zip -d /tmp
 
       - name: Build
-        run: make --jobs=2
+        run: |
+          python3 scripts/build_media_pkg.py --check
+          make --jobs=2
+
+      - name: Check server survives disconnected clients and interrupted waits
+        run: |
+          clang-18 -Wall -Wextra -Werror -Iinclude scripts/test_http_lifetime.c src/http_server.c src/net_utils.c -o /tmp/test_http_lifetime
+          /tmp/test_http_lifetime
 
       - name: Inspect payload
-        run: file ps5_torrent.elf
+        run: file PS5Torrent.elf
+
+      - name: Check torrent responsiveness and memory safety
+        run: |
+          clang-18 -g -fsanitize=address,undefined -pthread -Iinclude scripts/test_torrent_lifetime.c src/app_log.c src/torrent_mgr.c src/torrent.c src/sha1.c src/bencode.c src/piece_mgr.c src/file_io.c src/net_utils.c src/http_server.c src/peer_wire.c src/web_seed.c -o /tmp/test_torrent_lifetime
+          /tmp/test_torrent_lifetime
+          /tmp/test_torrent_lifetime udp
+
+      - name: Check UDP tracker protocol
+        run: |
+          clang-18 -Wall -Wextra -Werror -g -fsanitize=address,undefined -pthread -Iinclude scripts/test_tracker_udp.c src/tracker.c src/tracker_udp.c src/net_utils.c src/bencode.c src/app_log.c -o /tmp/test_tracker_udp
+          python3 scripts/test_tracker_udp.py /tmp/test_tracker_udp
+
+      - name: Check persistent logging
+        run: |
+          clang-18 -Wall -Wextra -Werror -pthread -Iinclude scripts/test_app_log.c src/app_log.c -o /tmp/test_app_log
+          /tmp/test_app_log
+
+      - name: Check complete local torrent downloads
+        run: |
+          clang-18 -Wall -Wextra -g -fsanitize=address,undefined -pthread -Iinclude scripts/test_download.c src/app_log.c src/torrent_mgr.c src/torrent.c src/sha1.c src/bencode.c src/piece_mgr.c src/file_io.c src/net_utils.c src/http_server.c src/peer_wire.c src/tracker.c src/tracker_udp.c src/web_seed.c -o /tmp/test_download
+          python3 scripts/test_download.py /tmp/test_download
 
       - name: Upload ELF artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ps5_torrent-elf
-          path: ps5_torrent.elf
+          name: PS5Torrent-elf
+          path: PS5Torrent.elf
           if-no-files-found: error

@@ -349,7 +349,7 @@ int http_server_poll(int timeout_ms)
 
     int ret = select(max_fd + 1, &readfds, NULL, NULL,
                      timeout_ms >= 0 ? &tv : NULL);
-    if (ret < 0) return -1;
+    if (ret < 0) return errno == EINTR ? 1 : -1;
     if (ret == 0) return 1; // Timeout
 
     /* Accept new connections */
@@ -413,6 +413,18 @@ int http_server_poll(int timeout_ms)
     return 0;
 }
 
+static int send_response_bytes(int sock, const char *data, size_t length)
+{
+    while (length) {
+        ssize_t n = send(sock, data, length, MSG_NOSIGNAL);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return -1; /* A lost client must not terminate the payload. */
+        data += n;
+        length -= (size_t)n;
+    }
+    return 0;
+}
+
 void http_server_send_response(int sock, const http_response_t *resp)
 {
     if (!resp) return;
@@ -433,9 +445,10 @@ void http_server_send_response(int sock, const http_response_t *resp)
         resp->content_type ? resp->content_type : "text/html",
         resp->body_len);
 
-    send(sock, header, (size_t)n, 0);
+    if (n < 0 || (size_t)n >= sizeof(header) ||
+        send_response_bytes(sock, header, (size_t)n) < 0) return;
     if (resp->body && resp->body_len > 0)
-        send(sock, resp->body, resp->body_len, 0);
+        send_response_bytes(sock, resp->body, resp->body_len);
 }
 
 http_response_t *http_response_new(int status, const char *content_type,

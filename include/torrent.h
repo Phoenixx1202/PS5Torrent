@@ -31,6 +31,10 @@ typedef struct {
     char   **announce_list;
     size_t   announce_list_count;
 
+    // HTTP web seeds (BEP 19 url-list, http:// only for now)
+    char   **web_seeds;
+    size_t   web_seed_count;
+
     // Info dictionary
     unsigned char *info_dict_raw;  // Raw bencoded info dict (for infohash)
     size_t         info_dict_len;

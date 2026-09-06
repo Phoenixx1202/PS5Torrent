@@ -1,50 +1,37 @@
+/* Own-process setup following Spectrum Library src/jb.c. No external daemon. */
 #include "ps5_jailbreak.h"
-#include "net_utils.h"
-
-#include <arpa/inet.h>
-#include <netinet/in.h>
+#include "ui.h"
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
-
-#define ETAHEN_COMMAND_PORT 9028
-#define ETAHEN_COMMAND_MAGIC ((int32_t)0xDEADBEEF)
-#define ETAHEN_JAILBREAK_COMMAND 5
-#define ETAHEN_PENDING_RESULT (-1337)
-
-/* Wire layout published by etaHEN for its legacy command server. */
-typedef struct {
-    int32_t magic;
-    int32_t command;
-    int32_t pid;
-    int32_t result;
-    char message1[0x500];
-    char message2[0x500];
-} etahen_command_t;
-
-_Static_assert(sizeof(etahen_command_t) == 0xA10,
-               "etaHEN command wire layout changed");
+#include <ps5/kernel.h>
 
 int ps5_request_jailbreak(void)
 {
-    int sock = net_tcp_connect(htonl(INADDR_LOOPBACK), ETAHEN_COMMAND_PORT);
-    if (sock < 0) return -1;
-
-    /* Never let an unavailable daemon stall application startup. */
-    net_set_timeout(sock, 2);
-
-    etahen_command_t command;
-    memset(&command, 0, sizeof(command));
-    command.magic = ETAHEN_COMMAND_MAGIC;
-    command.command = ETAHEN_JAILBREAK_COMMAND;
-    command.pid = (int32_t)getpid();
-    command.result = ETAHEN_PENDING_RESULT;
-
-    int ok = net_send_all(sock, &command, sizeof(command)) == 0 &&
-             net_recv_exact(sock, &command, sizeof(command)) == 0 &&
-             (command.result == 0 ||
-              command.result == ETAHEN_PENDING_RESULT);
-
-    net_close(sock);
-    return ok ? 0 : -1;
+    pid_t pid = getpid();
+    if (!kernel_get_proc(pid)) return -1;
+    int result = 0;
+    if (kernel_set_ucred_uid(pid, 0)) result = -1;
+    if (kernel_set_ucred_ruid(pid, 0)) result = -1;
+    if (kernel_set_ucred_svuid(pid, 0)) result = -1;
+    if (kernel_set_ucred_rgid(pid, 0)) result = -1;
+    if (kernel_set_ucred_svgid(pid, 0)) result = -1;
+    intptr_t root = kernel_get_root_vnode();
+    if (!root) result = -1;
+    else {
+        if (kernel_set_proc_rootdir(pid, root)) result = -1;
+        if (kernel_set_proc_jaildir(pid, root)) result = -1;
+    }
+    if (kernel_set_ucred_authid(pid, 0x4801000000000013ULL)) result = -1;
+    uint8_t caps[16];
+    memset(caps, 0xff, sizeof(caps));
+    if (kernel_set_ucred_caps(pid, caps)) result = -1;
+    /* This SDK takes the complete 32-byte attribute array, not a scalar. */
+    uint8_t attrs[32];
+    if (kernel_get_ucred_attrs(pid, attrs)) result = -1;
+    else {
+        attrs[0] |= 0x80;
+        if (kernel_set_ucred_attrs(pid, attrs)) result = -1;
+    }
+    return result;
 }

@@ -13,6 +13,8 @@ pkg/staging/
 pkg/ps5torrent_install/
 pkg/transfer_bundle/
 pkg/*.pkg
+!pkg/PS5Torrent.pkg
+pkg/*.naps_metric.json
 pkg/*.tar.gz
 pkg/install_via_ftp.sh
 pkg/sce_sys/*.png

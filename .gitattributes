@@ -1,2 +1,7 @@
 # Unified diffs use a single-space marker for blank context lines.
 *.patch whitespace=-blank-at-eol
+pkg/ps5torrent.gp5 text eol=lf
+pkg/sce_sys/param.json text eol=lf
+pkg/eboot.bin binary
+*.pkg binary
+*.sh text eol=lf

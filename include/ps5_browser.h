@@ -3,6 +3,7 @@
 
 /** Initialize UserService, required by the PS5 browser API. */
 int ps5_browser_init(void);
+int ps5_browser_open_tile(void);
 
 /**
  * Open the embedded web interface in the PS5 system browser.

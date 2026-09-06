@@ -19,6 +19,11 @@ void piece_mgr_init(piece_mgr_t *pm, size_t num_pieces,
     /* Setup bitfield */
     pm->bitfield_len = (num_pieces + 7) / 8;
     pm->bitfield = calloc(pm->bitfield_len, 1);
+    if (!pm->pieces || !pm->bitfield) {
+        free(pm->pieces); free(pm->bitfield);
+        pm->pieces = NULL; pm->bitfield = NULL;
+        return;
+    }
 
     /* Initialize pieces */
     for (size_t i = 0; i < num_pieces; i++) {

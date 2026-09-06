@@ -80,7 +80,7 @@ int peer_send_request(int sock, uint32_t index, uint32_t begin, uint32_t length)
  * @param data          Output buffer for piece data
  * @param data_len      Output: length of received data
  * @param timeout_sec   Receive timeout
- * @return 0 for piece data, 1 for keepalive/choke/unchoke/have, -1 for error/disconnect
+ * @return 0 for piece data, 1 for control, 2 for incomplete frame, -1 for error/disconnect
  */
 int peer_recv_message(int sock,
                       uint32_t *piece_index,
@@ -88,5 +88,9 @@ int peer_recv_message(int sock,
                       unsigned char *data,
                       uint32_t *data_len,
                       int timeout_sec);
+
+/* Typed variant: data needs 256 KiB; bitfields are returned in data as well. */
+int peer_recv_event(int sock, int *type, uint32_t *index, uint32_t *begin,
+                    unsigned char *data, uint32_t *length, int timeout_sec);
 
 #endif /* PS5TORRENT_PEER_WIRE_H */

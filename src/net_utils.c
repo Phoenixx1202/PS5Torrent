@@ -34,12 +34,13 @@ int net_resolve(const char *hostname, uint32_t *addr_out)
     }
 
     /* Try DNS resolution */
-    struct hostent *he = gethostbyname(hostname);
-    if (!he || he->h_addrtype != AF_INET) {
-        return -1;
-    }
-
-    memcpy(addr_out, he->h_addr_list[0], 4);
+    /* Discovery workers may resolve different trackers concurrently. */
+    struct addrinfo hints = {0}, *addresses = NULL;
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(hostname, NULL, &hints, &addresses) != 0 || !addresses) return -1;
+    *addr_out = ((struct sockaddr_in *)addresses->ai_addr)->sin_addr.s_addr;
+    freeaddrinfo(addresses);
     return 0;
 }
 
@@ -54,7 +55,25 @@ int net_tcp_connect(uint32_t addr, uint16_t port)
     saddr.sin_addr.s_addr = addr;
     saddr.sin_port = htons(port);
 
-    if (connect(sock, (struct sockaddr *)&saddr, sizeof(saddr)) < 0) {
+    int flags = fcntl(sock, F_GETFL, 0);
+    if (flags < 0 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
+        close(sock); return -1;
+    }
+    int connected = connect(sock, (struct sockaddr *)&saddr, sizeof(saddr));
+    if (connected < 0 && errno == EINPROGRESS) {
+        fd_set writable;
+        FD_ZERO(&writable); FD_SET(sock, &writable);
+        struct timeval timeout = {5, 0};
+        int error = 0; socklen_t size = sizeof(error);
+        int ready = select(sock + 1, NULL, &writable, NULL, &timeout);
+        if (ready > 0 && getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &size) == 0 && !error) {
+            connected = 0;
+        } else {
+            errno = ready == 0 ? ETIMEDOUT : (error ? error : errno);
+            connected = -1;
+        }
+    }
+    if (connected < 0 || fcntl(sock, F_SETFL, flags) < 0) {
         close(sock);
         return -1;
     }
@@ -68,7 +87,7 @@ int net_send_all(int sock, const void *data, size_t len)
     size_t remaining = len;
 
     while (remaining > 0) {
-        ssize_t sent = send(sock, ptr, remaining, 0);
+        ssize_t sent = send(sock, ptr, remaining, MSG_NOSIGNAL);
         if (sent < 0) {
             if (errno == EINTR) continue;
             return -1;
