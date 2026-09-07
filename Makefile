@@ -39,9 +39,11 @@ BOOST_DIR ?= $(LIBTORRENT_DEPS_DIR)/$(PS5TORRENT_BOOST_VERSION)
 LIBTORRENT_BUILD_DIR ?= $(CURDIR)/.build/libtorrent-ps5
 LIBTORRENT_LAB_ELF = $(LIBTORRENT_BUILD_DIR)/ps5torrent-libtorrent-lab.elf
 LIBTORRENT_STATIC_LIB = $(LIBTORRENT_BUILD_DIR)/libtorrent-build/libtorrent-rasterbar.a
+PS5_HOMEBREW_PREFIX = $(PS5_PAYLOAD_SDK)/target/user/homebrew
 LIBTORRENT_WITH_OPENSSL ?= auto
 ifeq ($(LIBTORRENT_WITH_OPENSSL),auto)
 LIBTORRENT_OPENSSL_HEADER := $(firstword \
+  $(wildcard $(PS5_HOMEBREW_PREFIX)/include/openssl/opensslv.h) \
   $(wildcard $(PS5_PAYLOAD_SDK)/target/include/openssl/opensslv.h) \
   $(wildcard $(PS5_PAYLOAD_SDK)/include/openssl/opensslv.h))
 LIBTORRENT_WITH_OPENSSL := $(if $(LIBTORRENT_OPENSSL_HEADER),1,0)
@@ -84,6 +86,9 @@ CPP_OBJS = $(CPP_SRCS:.cpp=.o)
 # Include paths
 INCLUDES = -Iinclude
 LIBTORRENT_INCLUDES = -I$(LIBTORRENT_DIR)/include -isystem $(BOOST_DIR)
+ifeq ($(LIBTORRENT_WITH_OPENSSL),1)
+LIBTORRENT_INCLUDES += -I$(PS5_HOMEBREW_PREFIX)/include
+endif
 
 # Compiler flags
 CFLAGS = -O2 \
@@ -116,7 +121,7 @@ endif
 LDLIBS = -lufs -lSceSystemService -lSceAppInstUtil
 LIBTORRENT_LDLIBS = $(LIBTORRENT_STATIC_LIB) -pthread
 ifeq ($(LIBTORRENT_WITH_OPENSSL),1)
-LIBTORRENT_LDLIBS += -lssl -lcrypto
+LIBTORRENT_LDLIBS += -L$(PS5_HOMEBREW_PREFIX)/lib -lssl -lcrypto
 endif
 LIBTORRENT_CMAKE_FLAGS =
 ifeq ($(LIBTORRENT_WITH_OPENSSL),0)

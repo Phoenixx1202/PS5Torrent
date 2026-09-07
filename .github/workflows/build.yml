@@ -21,7 +21,7 @@ jobs:
       - name: Install toolchain dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang-18 lld-18 llvm-18-dev build-essential cmake curl unzip xz-utils
+          sudo apt-get install --yes clang-18 lld-18 llvm-18-dev build-essential cmake curl perl unzip xz-utils
 
       - name: Install ps5-payload-sdk
         run: |
@@ -74,9 +74,10 @@ jobs:
 
       - name: Build libtorrent payload for release artifact
         run: |
+          bash scripts/libtorrent/build-openssl-ps5.sh
           make clean
           USE_LIBTORRENT=1 \
-            LIBTORRENT_WITH_OPENSSL=0 \
+            LIBTORRENT_WITH_OPENSSL=1 \
             LIBTORRENT_DEPS_DIR=/tmp/ps5torrent-libtorrent \
             LIBTORRENT_BUILD_DIR=/tmp/ps5torrent-libtorrent-build \
             make --jobs=2
